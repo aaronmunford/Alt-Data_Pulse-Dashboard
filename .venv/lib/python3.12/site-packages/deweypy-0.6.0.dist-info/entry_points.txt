@@ -1,0 +1,3 @@
+[console_scripts]
+dewey = deweypy:main.app
+

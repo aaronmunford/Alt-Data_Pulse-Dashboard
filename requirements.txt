@@ -1,0 +1,16 @@
+# Data Engineering
+google-cloud-storage
+google-cloud-bigquery
+pandas
+db-dtypes
+deweydatapy
+
+# Analysis
+numpy
+scipy
+statsmodels
+
+# Dashboard
+streamlit
+plotly
+altair
