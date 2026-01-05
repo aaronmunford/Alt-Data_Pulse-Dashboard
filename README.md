@@ -7,22 +7,40 @@ A quantitative signal platform for analyzing alternative data with an interactiv
 - Python 3.8 or higher
 - pip (Python package manager)
 
-## Setup Instructions
+## Quick Start
 
-### 1. Clone the Repository
+### Automated Setup (Recommended)
+
+For macOS/Linux users, we provide a setup script that automates the entire installation process:
+
+```bash
+git clone https://github.com/aaronmunford/Alt-Data_Pulse-Dashboard.git
+cd Alt-Data_Pulse-Dashboard
+./setup.sh
+```
+
+Then run the dashboard:
+
+```bash
+source .venv/bin/activate && cd dashboard && streamlit run app.py
+```
+
+### Manual Setup Instructions
+
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/aaronmunford/Alt-Data_Pulse-Dashboard.git
 cd Alt-Data_Pulse-Dashboard
 ```
 
-### 2. Create a Virtual Environment (Recommended)
+#### 2. Create a Virtual Environment (Recommended)
 
 ```bash
 python -m venv .venv
 ```
 
-### 3. Activate the Virtual Environment
+#### 3. Activate the Virtual Environment
 
 **On macOS/Linux:**
 ```bash
@@ -34,21 +52,21 @@ source .venv/bin/activate
 .venv\Scripts\activate
 ```
 
-### 4. Install Dependencies
+#### 4. Install Dependencies
 
-Install the core dashboard dependencies:
-
-```bash
-pip install streamlit plotly altair pandas numpy scipy statsmodels
-```
-
-Or, if you need the full data engineering stack (requires additional setup):
+**Option A: Install from requirements.txt (Recommended)**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-**Note:** The `deweydatapy` package in requirements.txt may be a custom/private package. If you encounter issues installing it, you can skip it and install just the dashboard dependencies as shown above.
+**Option B: Install manually**
+
+```bash
+pip install streamlit plotly altair pandas numpy scipy statsmodels
+```
+
+**Note:** If you need data engineering capabilities, see `requirements-dataeng.txt` for optional dependencies.
 
 ## Running the Dashboard
 
