@@ -5,6 +5,10 @@ pandas
 db-dtypes
 deweydatapy
 
+# Market Data
+yfinance
+pandas_datareader
+
 # Analysis
 numpy
 scipy

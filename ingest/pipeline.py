@@ -112,7 +112,7 @@ class DeweyIngester:
         print("\n=== Ingesting Consumer Edge Data ===")
 
         files_df = ddp.get_file_list(
-            apikey=API_KEY,
+            api_key=API_KEY,
             product_path=CONSUMER_EDGE_URL,
             start_date=start_date,
             print_info=True
@@ -144,7 +144,7 @@ class DeweyIngester:
         print("\n=== Ingesting Advan Foot Traffic Data ===")
 
         files_df = ddp.get_file_list(
-            apikey=API_KEY,
+            api_key=API_KEY,
             product_path=ADVAN_URL,
             start_date=start_date,
             print_info=True

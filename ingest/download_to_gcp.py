@@ -42,7 +42,7 @@ print("--- Fetching File List from Dewey (2024-Present) ---")
 
 # This gets the metadata first so we know what to download
 files_df = ddp.get_file_list(
-    apikey=API_KEY,
+    api_key=API_KEY,
     product_path=ADVAN_PATH,
     start_date="2024-01-01", 
     print_info=True
