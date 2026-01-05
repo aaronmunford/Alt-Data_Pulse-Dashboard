@@ -1,16 +1,15 @@
-# Data Engineering
-google-cloud-storage
-google-cloud-bigquery
+# Dashboard Dependencies (Core - Required)
+streamlit
+plotly
+altair
 pandas
-db-dtypes
-deweydatapy
-
-# Analysis
 numpy
 scipy
 statsmodels
 
-# Dashboard
-streamlit
-plotly
-altair
+# Data Engineering Dependencies (Optional - Only needed for data ingestion)
+# Uncomment the following lines if you need to run data ingestion scripts
+# google-cloud-storage
+# google-cloud-bigquery
+# db-dtypes
+# deweydatapy  # Note: This may be a custom/private package

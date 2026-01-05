@@ -1,0 +1,10 @@
+# Data Engineering Dependencies (Optional)
+# Only install these if you need to run data ingestion scripts
+
+google-cloud-storage
+google-cloud-bigquery
+db-dtypes
+
+# Note: deweydatapy appears to be a custom/private package
+# If you need it, please install it separately or contact the maintainer
+# deweydatapy
