@@ -40,7 +40,6 @@ env/
 *.log
 
 # OS
-.DS_Store
 Thumbs.db
 
 # Temporary files

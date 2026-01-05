@@ -18,7 +18,16 @@ fi
 
 # Check Python version
 PYTHON_VERSION=$(python3 --version | cut -d ' ' -f 2 | cut -d '.' -f 1,2)
+PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d '.' -f 1)
+PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d '.' -f 2)
+
 echo "Python version: $PYTHON_VERSION"
+
+# Validate Python version (requires 3.8+)
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
+    echo "Error: Python 3.8 or higher is required. You have Python $PYTHON_VERSION"
+    exit 1
+fi
 
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
@@ -37,17 +46,9 @@ source .venv/bin/activate
 echo "Upgrading pip..."
 pip install --upgrade pip > /dev/null 2>&1
 
-# Install dashboard dependencies
-echo "Installing dashboard dependencies..."
-echo "  - streamlit"
-echo "  - plotly"
-echo "  - altair"
-echo "  - pandas"
-echo "  - numpy"
-echo "  - scipy"
-echo "  - statsmodels"
-
-pip install streamlit plotly altair pandas numpy scipy statsmodels
+# Install dashboard dependencies from requirements.txt
+echo "Installing dashboard dependencies from requirements.txt..."
+pip install -r requirements.txt
 
 echo ""
 echo "======================================"
