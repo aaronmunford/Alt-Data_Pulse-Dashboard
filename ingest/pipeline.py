@@ -10,22 +10,33 @@ This pipeline handles the complete ETL process:
 import os
 import glob
 import shutil
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from google.cloud import storage, bigquery
 import deweydatapy as ddp
+from dotenv import load_dotenv
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-PROJECT_ID = "altdatapulsedashboard"
-DATASET_ID = "alternative_data"
-BUCKET_NAME = "raw-data-2025"
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(ENV_PATH)
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing {name}. Set it in {ENV_PATH} or your shell environment.")
+    return value
+
+PROJECT_ID = require_env("GCP_PROJECT_ID")
+DATASET_ID = require_env("BQ_DATASET_ID")
+BUCKET_NAME = require_env("GCS_BUCKET_NAME")
 TEMP_DIR = "temp_download"
 
 # Dewey API
-API_KEY = os.environ.get("DEWEY_API_KEY", "akv1_VK9ZTbm-gPSQAYFamgi50onevnEVA1AmKDq")
+API_KEY = require_env("DEWEY_API_KEY")
 CONSUMER_EDGE_URL = "https://api.deweydata.io/api/v1/external/data/prj_tceetydh__fldr_rxm7vzotfttqn4ppf"
 ADVAN_URL = "https://api.deweydata.io/api/v1/external/data/prj_tceetydh__fldr_bpyousrmfggrfubk"
 

@@ -1,5 +1,9 @@
-# need something to predict the "y" variable
-# this uses yfinance to get the stock price and pandas_datareader to get the US Census Retail Sales data
+"""
+Fetches market proxy data used for modeling:
+- Stock prices via yfinance
+- US retail sales (food services) via FRED
+Outputs data/market_data_stocks.csv and data/market_data_retail_sales.csv.
+"""
 
 import yfinance as yf
 import pandas_datareader.data as web
