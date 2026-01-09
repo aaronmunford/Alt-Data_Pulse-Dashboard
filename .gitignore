@@ -8,4 +8,6 @@ __pycache__/
 data/raw/
 data/*.csv
 data/*.csv.gz
+data/consensus_cache.json
 temp_download/
+CLAUDE.md
