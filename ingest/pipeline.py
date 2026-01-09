@@ -18,6 +18,17 @@ from google.cloud import storage, bigquery
 import deweydatapy as ddp
 from dotenv import load_dotenv
 
+try:
+    from ingest.lseg_client import LSEGConsensusClient
+    from ingest.ticker_mapping import supported_tickers
+except ImportError:  # Allow running from inside the ingest/ folder
+    try:
+        from lseg_client import LSEGConsensusClient
+        from ticker_mapping import supported_tickers
+    except ImportError:
+        LSEGConsensusClient = None
+        supported_tickers = lambda: []
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -374,7 +385,8 @@ def run_full_pipeline(
     ingest_consumer_edge: bool = True,
     ingest_advan: bool = False,  # Set to True when ready for large download
     process_local: bool = True,
-    start_date: str = "2023-01-01"
+    start_date: str = "2023-01-01",
+    refresh_consensus: bool = False,
 ):
     """
     Run the complete data pipeline.
@@ -403,6 +415,13 @@ def run_full_pipeline(
 
         if ingest_advan:
             ingester.ingest_advan(start_date)
+
+    # Step 1.5: Refresh LSEG consensus cache (optional)
+    if refresh_consensus and LSEGConsensusClient:
+        print("\n=== Refreshing LSEG Consensus Cache ===")
+        client = LSEGConsensusClient()
+        results = client.refresh_cache(tickers=supported_tickers())
+        print(f"Refreshed consensus for {len(results)} tickers.")
 
     # Step 2: Transform local data
     if process_local:
@@ -449,11 +468,12 @@ if __name__ == "__main__":
     parser.add_argument("--full", action="store_true", help="Run full pipeline with Dewey download")
     parser.add_argument("--local", action="store_true", help="Process local files only")
     parser.add_argument("--start-date", default="2023-01-01", help="Start date for downloads")
+    parser.add_argument("--refresh-consensus", action="store_true", help="Refresh LSEG consensus cache")
 
     args = parser.parse_args()
 
     if args.full:
-        run_full_pipeline(start_date=args.start_date)
+        run_full_pipeline(start_date=args.start_date, refresh_consensus=args.refresh_consensus)
     elif args.local:
         run_local_only()
     else:
