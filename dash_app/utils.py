@@ -5,15 +5,21 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
-parent_dir = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(parent_dir))
+try:
+    parent_dir = Path(__file__).resolve().parents[1]
+    if parent_dir.exists():
+        sys.path.insert(0, str(parent_dir))
+    else:
+        print(f"Warning: parent directory not found for imports: {parent_dir}", file=sys.stderr)
+except Exception as exc:
+    print(f"Warning: unable to set import path for dash_app: {exc}", file=sys.stderr)
 
 from ingest.predictor import RevenuePredictor
 import pandas as pd
 from typing import Dict, Optional
 from datetime import datetime
 
-# Singleton predictor instance
+# Singleton predictor instance (process-local; run workers=1 to avoid shared-state issues)
 _predictor = None
 
 def get_predictor() -> RevenuePredictor:

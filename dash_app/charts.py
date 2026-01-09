@@ -6,7 +6,7 @@ Bloomberg Terminal Style Plotly Charts
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 # Bloomberg Terminal Color Palette
 COLORS = {
@@ -308,18 +308,24 @@ def _filter_by_date_range(df: pd.DataFrame, date_range: str) -> pd.DataFrame:
 
     df = df.copy()
 
-    # Ensure date column is datetime
-    if "date" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["date"]):
-        df["date"] = pd.to_datetime(df["date"])
+    if "date" not in df.columns:
+        return df
 
-    now = datetime.now()
+    # Ensure date column is datetime
+    if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    # Anchor to the latest available date to avoid timezone drift from local clock.
+    reference_date = df["date"].max()
+    if pd.isna(reference_date):
+        return df
 
     if date_range == "Last 90 Days":
-        cutoff = now - timedelta(days=90)
+        cutoff = reference_date - timedelta(days=90)
     elif date_range == "Last 6 Months":
-        cutoff = now - timedelta(days=180)
+        cutoff = reference_date - timedelta(days=180)
     elif date_range == "Last Year":
-        cutoff = now - timedelta(days=365)
+        cutoff = reference_date - timedelta(days=365)
     else:  # "All Available"
         return df
 

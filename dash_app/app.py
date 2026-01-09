@@ -646,8 +646,8 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
 def update_refresh_interval(minutes: int):
     """Update the auto-refresh interval based on user selection."""
     if minutes == 0:
-        # Disable by setting to very long interval (1 hour)
-        return 3600 * 1000
+        # Disable by setting to a very long interval (~1 year).
+        return 365 * 24 * 60 * 60 * 1000
     return minutes * 60 * 1000
 
 
