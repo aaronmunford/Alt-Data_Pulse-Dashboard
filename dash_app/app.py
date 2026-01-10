@@ -14,6 +14,7 @@ from datetime import datetime
 from utils import (
     load_brand_signal,
     load_brand_trend_data,
+    load_brand_news,
     get_available_brands,
     format_currency,
     format_delta,
@@ -23,6 +24,9 @@ from utils import (
 
 # Import chart builders
 from charts import create_traffic_chart, create_ticket_chart, create_combined_chart
+
+# Import news feed component
+from components.news_feed import create_news_feed_panel, create_news_unavailable_message
 
 # Initialize Dash app with external stylesheets
 app = dash.Dash(
@@ -51,6 +55,14 @@ app.layout = dbc.Container(
         dcc.Store(id="refresh-trigger", data=0),
         # Download component for CSV export
         dcc.Download(id="download-dataframe-csv"),
+        # News-specific interval (faster refresh - 2 minutes)
+        dcc.Interval(
+            id="news-interval-component",
+            interval=2 * 60 * 1000,  # 2 minutes in milliseconds
+            n_intervals=0,
+        ),
+        # Store for news data
+        dcc.Store(id="news-data-store", data=[]),
         # Header Section
         dbc.Row(
             [
@@ -303,9 +315,10 @@ app.layout = dbc.Container(
             ],
             style={"marginBottom": "2rem"},
         ),
-        # Combined Chart Section
+        # Combined Chart + News Panel Section
         dbc.Row(
             [
+                # Combined Chart (9 columns)
                 dbc.Col(
                     [
                         html.Div(
@@ -326,8 +339,18 @@ app.layout = dbc.Container(
                             style={"padding": "1rem"},
                         )
                     ],
-                    width=12,
-                )
+                    md=9,
+                ),
+                # News Feed Panel (3 columns)
+                dbc.Col(
+                    [
+                        html.Div(
+                            id="news-feed-container",
+                            children=create_news_unavailable_message(),
+                        )
+                    ],
+                    md=3,
+                ),
             ],
             style={"marginBottom": "2rem"},
         ),
@@ -727,6 +750,50 @@ def toggle_collapse(n_clicks, is_open):
 
 
 # ============================================================================
+# News Feed Callback
+# ============================================================================
+
+
+@callback(
+    [
+        Output("news-feed-container", "children"),
+        Output("news-data-store", "data"),
+    ],
+    [
+        Input("brand-selector", "value"),
+        Input("news-interval-component", "n_intervals"),
+        Input("refresh-trigger", "data"),
+    ],
+)
+def update_news_feed(brand: str, n_intervals: int, refresh_trigger):
+    """
+    Update news feed when brand changes or news interval fires.
+
+    Args:
+        brand: Currently selected brand
+        n_intervals: News interval tick count
+        refresh_trigger: Manual refresh trigger
+
+    Returns:
+        Tuple of (news panel component, news data for store)
+    """
+    try:
+        headlines = load_brand_news(brand, count=15)
+
+        if not headlines:
+            return create_news_unavailable_message(), []
+
+        # Check if any headlines are from stale cache
+        any_stale = any(h.get("is_stale", False) for h in headlines)
+
+        return create_news_feed_panel(headlines, show_stale_indicator=any_stale), headlines
+
+    except Exception as e:
+        print(f"Error updating news feed: {e}")
+        return create_news_unavailable_message(), []
+
+
+# ============================================================================
 # Run Server
 # ============================================================================
 
@@ -740,6 +807,7 @@ if __name__ == "__main__":
     print("  • Bloomberg Terminal dark theme")
     print("  • Interactive Plotly time series charts")
     print("  • Real-time data from RevenuePredictor")
+    print("  • Live news feed from LSEG/Refinitiv (brand-filtered)")
     print("  • Auto-refresh (1, 5, 15 min or off)")
     print("  • CSV export with date filtering")
     print("  • Brand selector (STARBUCKS, MCDONALD'S, CHIPOTLE)")

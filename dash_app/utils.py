@@ -15,12 +15,15 @@ except Exception as exc:
     print(f"Warning: unable to set import path for dash_app: {exc}", file=sys.stderr)
 
 from ingest.predictor import RevenuePredictor
+from ingest.news_client import LSEGNewsClient
 import pandas as pd
-from typing import Dict, Optional
-from datetime import datetime
+from typing import Dict, List, Optional
+from datetime import datetime, timezone
 
 # Singleton predictor instance (process-local; run workers=1 to avoid shared-state issues)
 _predictor = None
+_news_client = None
+
 
 def get_predictor() -> RevenuePredictor:
     """Get or create RevenuePredictor singleton."""
@@ -70,6 +73,81 @@ def load_brand_trend_data(brand: str) -> pd.DataFrame:
     except Exception as e:
         print(f"Error loading trend data for {brand}: {e}")
         return pd.DataFrame()
+
+def get_news_client() -> LSEGNewsClient:
+    """Get or create LSEGNewsClient singleton."""
+    global _news_client
+    if _news_client is None:
+        _news_client = LSEGNewsClient()
+    return _news_client
+
+
+def load_brand_news(brand: str, count: int = 15) -> List[Dict]:
+    """
+    Load news headlines for a brand.
+
+    Args:
+        brand: Brand name (e.g., "STARBUCKS")
+        count: Number of headlines to fetch
+
+    Returns:
+        List of dicts with keys: headline, timestamp, story_id, source, is_stale
+    """
+    try:
+        client = get_news_client()
+        headlines = client.get_headlines_for_brand(brand, count=count)
+        return headlines
+    except Exception as e:
+        print(f"Error loading news for {brand}: {e}")
+        return []
+
+
+def format_news_timestamp(timestamp: Optional[str]) -> str:
+    """
+    Format a news timestamp for display.
+    Shows relative time for recent news, absolute time for older.
+
+    Args:
+        timestamp: ISO format timestamp string
+
+    Returns:
+        Formatted string like "2h ago", "Yesterday 14:30", or "Jan 9 14:30"
+    """
+    if not timestamp:
+        return ""
+
+    try:
+        # Parse the ISO timestamp
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+
+        # Less than 1 minute ago
+        if diff.total_seconds() < 60:
+            return "Just now"
+
+        # Less than 1 hour ago
+        if diff.total_seconds() < 3600:
+            minutes = int(diff.total_seconds() / 60)
+            return f"{minutes}m ago"
+
+        # Less than 24 hours ago
+        if diff.total_seconds() < 86400:
+            hours = int(diff.total_seconds() / 3600)
+            return f"{hours}h ago"
+
+        # Less than 7 days ago
+        if diff.days < 7:
+            if diff.days == 1:
+                return f"Yesterday {dt.strftime('%H:%M')}"
+            return f"{diff.days}d ago"
+
+        # Older than a week - show date
+        return dt.strftime("%b %d %H:%M")
+
+    except Exception:
+        return ""
+
 
 def get_available_brands():
     """Get list of available brands."""
