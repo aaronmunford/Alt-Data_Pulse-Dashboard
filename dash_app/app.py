@@ -8,6 +8,7 @@ from dash import html, dcc, callback, Input, Output, State, ALL, ctx
 import dash_bootstrap_components as dbc
 import pandas as pd
 import json
+import uuid
 from datetime import datetime
 
 # Import data utilities
@@ -45,10 +46,178 @@ app = dash.Dash(
 server = app.server
 
 # ============================================================================
+# Workspace Tabs
+# ============================================================================
+
+DEFAULT_WORKSPACE_TITLE = "Start Page"
+
+
+def _default_workspace():
+    return {
+        "id": "start-page",
+        "title": DEFAULT_WORKSPACE_TITLE,
+        "template": "markets",
+        "state": {},
+    }
+
+
+def _new_workspace():
+    return {
+        "id": f"ws-{uuid.uuid4().hex[:8]}",
+        "title": DEFAULT_WORKSPACE_TITLE,
+        "template": "markets",
+        "state": {},
+    }
+
+
+def _normalize_workspace_state(data):
+    if not data or not isinstance(data, dict):
+        workspace = _default_workspace()
+        return {"workspaces": [workspace], "active_id": workspace["id"]}
+
+    raw_workspaces = [ws for ws in data.get("workspaces", []) if isinstance(ws, dict)]
+    if not raw_workspaces:
+        workspace = _default_workspace()
+        return {"workspaces": [workspace], "active_id": workspace["id"]}
+
+    normalized = []
+    for ws in raw_workspaces:
+        ws_id = ws.get("id") or f"ws-{uuid.uuid4().hex[:8]}"
+        template = ws.get("template") or "markets"
+        if template == "start":
+            template = "markets"
+        normalized.append(
+            {
+                "id": ws_id,
+                "title": ws.get("title") or DEFAULT_WORKSPACE_TITLE,
+                "template": template,
+                "state": ws.get("state") or {},
+            }
+        )
+
+    active_id = data.get("active_id")
+    if active_id not in {ws["id"] for ws in normalized}:
+        active_id = normalized[0]["id"]
+
+    return {"workspaces": normalized, "active_id": active_id}
+
+
+def _start_page_layout(workspaces, active_id):
+    workspace_items = []
+    for ws in workspaces:
+        is_active = ws["id"] == active_id
+        workspace_items.append(
+            html.Div(
+                [
+                    html.Span(ws["title"], className="start-page-workspace-title"),
+                    html.Span(
+                        "ACTIVE" if is_active else "OPEN",
+                        className="start-page-workspace-tag"
+                        + (" start-page-workspace-tag-active" if is_active else ""),
+                    ),
+                ],
+                className="start-page-workspace-item",
+            )
+        )
+
+    return dbc.Container(
+        [
+            dbc.Row(
+                [
+                    dbc.Col(
+                        html.Div(
+                            [
+                                html.H2(
+                                    "Start Page",
+                                    className="start-page-title",
+                                ),
+                                html.P(
+                                    "Open new workspaces, jump to saved layouts, or type a command.",
+                                    className="start-page-subtitle",
+                                ),
+                            ],
+                            className="start-page-hero",
+                        ),
+                        width=12,
+                    )
+                ]
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Input(
+                            type="text",
+                            placeholder="Type a command or ticker (e.g., SBUX US)",
+                            className="start-page-input",
+                        ),
+                        width=12,
+                    )
+                ],
+                className="start-page-command-row",
+            ),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        html.Div(
+                            [
+                                html.H3("Workspaces", className="start-page-card-title"),
+                                html.Div(
+                                    workspace_items,
+                                    className="start-page-workspace-list",
+                                ),
+                            ],
+                            className="dash-card start-page-card",
+                        ),
+                        md=4,
+                    ),
+                    dbc.Col(
+                        html.Div(
+                            [
+                                html.H3("Quick Launch", className="start-page-card-title"),
+                                html.P(
+                                    "Markets dashboard, news tape, and charting tools.",
+                                    className="start-page-card-body",
+                                ),
+                                html.P(
+                                    "Add a workspace with the plus button to open a new start page.",
+                                    className="start-page-card-body",
+                                ),
+                            ],
+                            className="dash-card start-page-card",
+                        ),
+                        md=4,
+                    ),
+                    dbc.Col(
+                        html.Div(
+                            [
+                                html.H3("Tips", className="start-page-card-title"),
+                                html.P(
+                                    "Keep multiple layouts open for faster switching.",
+                                    className="start-page-card-body",
+                                ),
+                                html.P(
+                                    "Use short labels to keep tabs compact.",
+                                    className="start-page-card-body",
+                                ),
+                            ],
+                            className="dash-card start-page-card",
+                        ),
+                        md=4,
+                    ),
+                ],
+                className="start-page-grid",
+            ),
+        ],
+        fluid=True,
+        style={"maxWidth": "1400px"},
+        className="workspace-pane",
+    )
+
+# ============================================================================
 # Layout
 # ============================================================================
 
-app.layout = dbc.Container(
+markets_layout = dbc.Container(
     [
         # Auto-refresh interval component (5 minutes)
         dcc.Interval(
@@ -60,10 +229,10 @@ app.layout = dbc.Container(
         dcc.Store(id="refresh-trigger", data=0),
         # Download component for CSV export
         dcc.Download(id="download-dataframe-csv"),
-        # News-specific interval (faster refresh - 2 minutes)
+        # News-specific interval (matches main refresh - 5 minutes)
         dcc.Interval(
             id="news-interval-component",
-            interval=2 * 60 * 1000,  # 2 minutes in milliseconds
+            interval=5 * 60 * 1000,  # 5 minutes in milliseconds
             n_intervals=0,
         ),
         # Store for news data
@@ -491,9 +660,172 @@ app.layout = dbc.Container(
     style={"maxWidth": "1400px"},
 )
 
+DEFAULT_WORKSPACE_STATE = {
+    "workspaces": [_default_workspace()],
+    "active_id": "start-page",
+}
+
+
+def _render_workspace_tabs(workspaces, active_id):
+    tabs = []
+    for ws in workspaces:
+        is_active = ws["id"] == active_id
+        tabs.append(
+            html.Div(
+                [
+                    html.Span(ws["title"], className="workspace-tab-title"),
+                    html.Button(
+                        "x",
+                        id={"type": "workspace-close", "id": ws["id"]},
+                        className="workspace-tab-close",
+                        n_clicks=0,
+                        type="button",
+                    ),
+                ],
+                id={"type": "workspace-tab", "id": ws["id"]},
+                className="workspace-tab"
+                + (" workspace-tab-active" if is_active else ""),
+                n_clicks=0,
+                role="button",
+                tabIndex=0,
+            )
+        )
+    return tabs
+
+
+def _render_workspace_content(workspace, state):
+    template = workspace.get("template", "markets")
+    if template in ("markets", "start"):
+        return markets_layout
+    return _start_page_layout(state["workspaces"], state["active_id"])
+
+
+app.layout = html.Div(
+    [
+        dcc.Store(
+            id="workspace-store",
+            storage_type="local",
+            data=DEFAULT_WORKSPACE_STATE,
+        ),
+        html.Div(
+            [
+                dbc.Container(
+                    html.Div(
+                        [
+                            html.Div(
+                                id="workspace-tabs",
+                                className="workspace-tabs",
+                            ),
+                            html.Button(
+                                "+",
+                                id="workspace-add",
+                                className="workspace-tab-add",
+                                n_clicks=0,
+                                type="button",
+                            ),
+                        ],
+                        className="workspace-tabs-inner",
+                    ),
+                    fluid=True,
+                    style={"maxWidth": "1400px"},
+                    className="workspace-tabs-container",
+                )
+            ],
+            className="workspace-tab-bar",
+        ),
+        html.Div(
+            id="workspace-content",
+            className="workspace-content",
+        ),
+    ]
+)
+
 # ============================================================================
 # Callbacks
 # ============================================================================
+
+@callback(
+    Output("workspace-store", "data"),
+    [
+        Input("workspace-add", "n_clicks"),
+        Input({"type": "workspace-tab", "id": ALL}, "n_clicks"),
+        Input({"type": "workspace-close", "id": ALL}, "n_clicks"),
+    ],
+    State("workspace-store", "data"),
+    prevent_initial_call=True,
+)
+def update_workspace_store(add_clicks, tab_clicks, close_clicks, store_data):
+    """Handle workspace tab add/select/close actions."""
+    state = _normalize_workspace_state(store_data)
+
+    action = None
+    select_id = None
+    close_id = None
+
+    for trigger in ctx.triggered or []:
+        if trigger.get("value") in (None, 0):
+            continue
+        prop_id = trigger["prop_id"].split(".")[0]
+        if prop_id == "workspace-add":
+            action = "add"
+            break
+        try:
+            id_dict = json.loads(prop_id)
+        except ValueError:
+            continue
+        if id_dict.get("type") == "workspace-close":
+            action = "close"
+            close_id = id_dict.get("id")
+        elif id_dict.get("type") == "workspace-tab" and action != "close":
+            action = "select"
+            select_id = id_dict.get("id")
+
+    if action == "add":
+        new_workspace = _new_workspace()
+        state["workspaces"] = state["workspaces"] + [new_workspace]
+        state["active_id"] = new_workspace["id"]
+        return state
+
+    if action == "close" and close_id:
+        workspaces = state["workspaces"]
+        close_index = next(
+            (idx for idx, ws in enumerate(workspaces) if ws["id"] == close_id),
+            None,
+        )
+        workspaces = [ws for ws in workspaces if ws["id"] != close_id]
+        if not workspaces:
+            workspace = _default_workspace()
+            state["workspaces"] = [workspace]
+            state["active_id"] = workspace["id"]
+            return state
+        if state["active_id"] == close_id:
+            new_index = min(close_index or 0, len(workspaces) - 1)
+            state["active_id"] = workspaces[new_index]["id"]
+        state["workspaces"] = workspaces
+        return state
+
+    if action == "select" and select_id:
+        state["active_id"] = select_id
+        return state
+
+    return state
+
+
+@callback(
+    Output("workspace-tabs", "children"),
+    Output("workspace-content", "children"),
+    Input("workspace-store", "data"),
+)
+def render_workspace_ui(store_data):
+    """Render workspace tabs and the active workspace content."""
+    state = _normalize_workspace_state(store_data)
+    tabs = _render_workspace_tabs(state["workspaces"], state["active_id"])
+    active_workspace = next(
+        (ws for ws in state["workspaces"] if ws["id"] == state["active_id"]),
+        state["workspaces"][0],
+    )
+    content = _render_workspace_content(active_workspace, state)
+    return tabs, content
 
 @callback(
     [
