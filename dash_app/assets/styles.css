@@ -1,0 +1,686 @@
+/* Bloomberg Terminal Dark Theme for Dash Dashboard */
+
+:root {
+    /* Primary Colors - Bloomberg Dark Blue */
+    --bg-primary: #0a0e27;
+    --bg-secondary: #161b33;
+    --bg-card: #1a1f3a;
+    --bg-hover: #252a45;
+
+    /* Text Colors */
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --text-title: #ffffff;
+
+    /* Accent Colors */
+    --accent-green: #3fb950;
+    --accent-red: #f85149;
+    --accent-blue: #58a6ff;
+    --accent-yellow: #d29922;
+    --accent-orange: #db6d28;
+
+    /* Border & Grid */
+    --border-color: #30363d;
+    --grid-color: #30363d;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+
+    /* Typography */
+    --font-mono: 'IBM Plex Mono', 'Consolas', 'Monaco', monospace;
+    --font-sans: 'Space Grotesk', 'Inter', -apple-system, sans-serif;
+}
+
+/* Global Styles */
+body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Main Container */
+#_dash-app-content {
+    background-color: var(--bg-primary);
+    min-height: 100vh;
+}
+
+/* Headers */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-sans);
+    color: var(--text-title);
+    font-weight: 600;
+    margin-top: 0;
+}
+
+h1 {
+    font-size: 2.5rem;
+    letter-spacing: -0.02em;
+}
+
+h2 {
+    font-size: 1.875rem;
+}
+
+h3 {
+    font-size: 1.5rem;
+}
+
+/* Card Styles */
+.dash-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
+}
+
+.dash-card:hover {
+    border-color: var(--accent-blue);
+    box-shadow: var(--shadow-md);
+}
+
+/* KPI Card Styles */
+.kpi-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.25rem;
+    text-align: center;
+    transition: transform 0.2s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-blue);
+}
+
+.kpi-value {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: var(--font-sans);
+    color: var(--text-title);
+}
+
+.kpi-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.5rem;
+}
+
+.kpi-delta-positive {
+    color: var(--accent-green);
+}
+
+.kpi-delta-negative {
+    color: var(--accent-red);
+}
+
+/* Button Styles */
+button, .dash-button {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.625rem 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+button:hover, .dash-button:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--accent-blue);
+}
+
+button:active, .dash-button:active {
+    transform: scale(0.98);
+}
+
+/* Dropdown Styles */
+.Select-control {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 6px !important;
+    color: var(--text-primary) !important;
+}
+
+.Select-menu-outer {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 6px !important;
+}
+
+.Select-option {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+.Select-option:hover {
+    background-color: var(--bg-hover) !important;
+}
+
+/* Plotly Chart Container */
+.js-plotly-plot {
+    background-color: transparent !important;
+}
+
+/* Loading Spinner */
+._dash-loading-callback {
+    color: var(--accent-blue);
+}
+
+/* Utility Classes */
+.text-green {
+    color: var(--accent-green);
+}
+
+.text-red {
+    color: var(--accent-red);
+}
+
+.text-blue {
+    color: var(--accent-blue);
+}
+
+.text-yellow {
+    color: var(--accent-yellow);
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+.font-mono {
+    font-family: var(--font-mono);
+}
+
+.font-sans {
+    font-family: var(--font-sans);
+}
+
+/* Workspace Tabs */
+.workspace-tab-bar {
+    background-color: #1b1f2b;
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.workspace-tabs-container {
+    padding: 0 0.75rem;
+}
+
+.workspace-tabs-inner {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+}
+
+.workspace-tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
+    flex: 1;
+    overflow-x: auto;
+    padding-top: 0.4rem;
+}
+
+.workspace-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    background-color: #20263a;
+    color: var(--text-secondary);
+    border: 1px solid #111426;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.workspace-tab:hover {
+    color: var(--text-title);
+    background-color: #262c42;
+}
+
+.workspace-tab-active {
+    background-color: #2a3046;
+    color: var(--text-title);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.workspace-tab-title {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.workspace-tab-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 0;
+}
+
+.workspace-tab-close:hover {
+    color: var(--text-title);
+}
+
+.workspace-tab-add {
+    background-color: #20263a;
+    border: 1px solid #111426;
+    color: var(--text-title);
+    width: 34px;
+    height: 32px;
+    border-radius: 6px 6px 0 0;
+    margin-top: 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    padding: 0;
+}
+
+.workspace-tab-add:hover {
+    background-color: #262c42;
+}
+
+.workspace-content {
+    padding-top: 1rem;
+}
+
+/* Start Page */
+.start-page-hero {
+    background: linear-gradient(120deg, #1c2236 0%, #11162b 100%);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 2rem;
+    margin-top: 1.5rem;
+}
+
+.start-page-title {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.start-page-subtitle {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.start-page-command-row {
+    margin: 1.5rem 0;
+}
+
+.start-page-input {
+    width: 100%;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+}
+
+.start-page-grid {
+    margin-bottom: 2rem;
+}
+
+.start-page-card {
+    min-height: 220px;
+}
+
+.start-page-card-title {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.start-page-card-body {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.start-page-workspace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.start-page-workspace-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.start-page-workspace-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.start-page-workspace-title {
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    color: var(--text-title);
+}
+
+.start-page-workspace-tag {
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+}
+
+.start-page-workspace-tag-active {
+    color: var(--accent-yellow);
+    border-color: var(--accent-yellow);
+}
+
+/* Responsive Grid */
+@media (max-width: 768px) {
+    .kpi-card {
+        margin-bottom: 1rem;
+    }
+
+    h1 {
+        font-size: 1.875rem;
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-blue);
+}
+
+/* ============================================================================
+   News Panel - Bloomberg Terminal Style
+   ============================================================================ */
+
+.news-panel {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    height: calc(100vh - 350px);
+    min-height: 400px;
+    max-height: 600px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 1rem;
+}
+
+.news-panel-header {
+    background-color: var(--bg-secondary);
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.news-panel-title {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent-yellow);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.news-stale-badge {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--accent-orange);
+    background-color: rgba(219, 109, 40, 0.15);
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.news-scroll-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.25rem 0;
+}
+
+.news-item {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.news-item:hover {
+    background-color: var(--bg-hover);
+}
+
+.news-item:last-child {
+    border-bottom: none;
+}
+
+.news-timestamp {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.news-headline {
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+    margin-bottom: 0.375rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.news-source-badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--accent-blue);
+    background-color: rgba(88, 166, 255, 0.1);
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+/* Loading state */
+.news-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+}
+
+/* Error/Unavailable state */
+.news-unavailable {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    text-align: center;
+    flex: 1;
+}
+
+/* Responsive: Stack on mobile */
+@media (max-width: 992px) {
+    .news-panel {
+        height: auto;
+        max-height: 350px;
+        min-height: 250px;
+        position: static;
+        margin-top: 1rem;
+    }
+}
+
+/* ============================================================================
+   News Item - Simplified Clean Layout
+   ============================================================================ */
+
+/* Simple news item: timestamp + headline inline */
+.news-item {
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    padding: 0.625rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.news-item:hover {
+    background-color: var(--bg-hover);
+}
+
+.news-item:last-child {
+    border-bottom: none;
+}
+
+/* Timestamp column */
+.news-time {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 55px;
+}
+
+/* Headline text */
+.news-text {
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+    flex: 1;
+}
+
+.news-item:hover .news-text {
+    color: var(--accent-blue);
+}
+
+/* Translated indicator */
+.news-translated-tag {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: var(--accent-green);
+    flex-shrink: 0;
+}
+
+/* Unavailable state text */
+.news-unavailable-text {
+    color: #8b949e;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+}
+
+.news-unavailable-subtext {
+    color: #6e7681;
+    font-size: 0.75rem;
+}
+
+/* ============================================================================
+   Story Modal - Bloomberg Style
+   ============================================================================ */
+
+.story-modal .modal-content {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+}
+
+.story-modal .modal-header {
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 1rem 1.5rem;
+}
+
+.story-modal .modal-title {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-title);
+    line-height: 1.4;
+}
+
+.story-modal .btn-close {
+    filter: invert(1);
+    opacity: 0.6;
+}
+
+.story-modal .btn-close:hover {
+    opacity: 1;
+}
+
+.story-modal .modal-body {
+    padding: 1.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.story-modal-meta {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.story-modal-content {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+    line-height: 1.7;
+    white-space: pre-wrap;
+}
