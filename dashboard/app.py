@@ -12,7 +12,7 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Import the prediction model
 try:
@@ -152,6 +152,32 @@ html, body, [class*="css"] {
 }
 
 .card-note {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.card-subnote {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.lseg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--blue);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.consensus-meta {
+  margin-top: 0.75rem;
   color: var(--text-secondary);
   font-size: 0.85rem;
 }
@@ -302,8 +328,9 @@ def load_data(brand: str):
     if USE_REAL_DATA:
         try:
           predictor = RevenuePredictor(
-            spend_path='../data/clean_spend_daily.csv',
-            traffic_path='../data/clean_traffic_daily.csv'
+            spend_path='data/clean_spend_daily.csv',
+            traffic_path='data/clean_traffic_daily.csv',
+            retail_sales_path='data/market_data_retail_sales.csv',
           )
           signal = predictor.predict_revenue(brand)
           trend_df = predictor.get_trend_data(brand)
@@ -322,67 +349,110 @@ def load_data(brand: str):
         'delta_direction': 'BEAT',
         'signal_strength': 'High',
         'correlation': 0.92,
+        'consensus_source': 'mock',
+        'consensus_revenue_high': 9.4e9,
+        'consensus_revenue_low': 8.9e9,
+        'consensus_num_analysts': 26,
+        'consensus_earnings_date': (datetime.now().date()).isoformat(),
+        'consensus_fetched_at': datetime.now().isoformat(),
+        'consensus_is_stale': False,
     }
     return signal, pd.DataFrame(), False
 
 
-def get_chart_data(trend_df: pd.DataFrame):
-    """Prepare data for charts."""
-    if trend_df.empty:
-        # Generate mock data
-        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+def get_chart_data(trend_df: pd.DataFrame, date_range_days: int = 365):
+    """Prepare data for charts using daily data with 7-day rolling averages.
 
-        traffic_2023 = [100, 102, 104, 103, 101, 99, 98, 100, 102, 104, 103, 100]
-        traffic_2024 = [98, 99, 101, 100, 98, 96, 95, 97, 99, 101, 100, 98]
-        ticket_2023 = [9.50, 9.60, 9.70, 9.75, 9.80, 9.85, 9.90, 9.95, 10.00, 10.05, 10.10, 10.00]
-        ticket_2024 = [9.70, 9.85, 10.00, 10.10, 10.20, 10.30, 10.40, 10.45, 10.50, 10.55, 10.60, 10.50]
+    Args:
+        trend_df: DataFrame with daily data from predictor.get_trend_data()
+        date_range_days: Number of days to show (default: 365 for last year)
+    """
+    if trend_df.empty:
+        # Generate mock data for fallback (daily data for last 90 days)
+        dates = pd.date_range(end=datetime.now(), periods=90, freq='D')
 
         traffic_df = pd.DataFrame({
-            "Month": months * 2,
-            "Year": ["2023"] * 12 + ["2024"] * 12,
-            "Value": traffic_2023 + traffic_2024,
+            "date": dates,
+            "Value": np.linspace(100, 98, 90) + np.random.randn(90) * 2,
         })
 
         ticket_df = pd.DataFrame({
-            "Month": months * 2,
-            "Year": ["2023"] * 12 + ["2024"] * 12,
-            "Value": ticket_2023 + ticket_2024,
+            "date": dates,
+            "Value": np.linspace(9.50, 10.50, 90) + np.random.randn(90) * 0.15,
         })
 
         return traffic_df, ticket_df, -2.0, 5.0
 
     # Use real data
-    trend_df = trend_df.copy()
-    trend_df['month'] = trend_df['date'].dt.strftime('%b')
-    trend_df['year'] = trend_df['date'].dt.year.astype(str)
+    df = trend_df.copy()
 
-    current_year = datetime.now().year
-    recent = trend_df[trend_df['date'].dt.year >= current_year - 1]
+    # Filter to specified date range (use data's max date as reference, not system date)
+    max_date = df['date'].max()
+    cutoff_date = max_date - timedelta(days=date_range_days)
+    df = df[df['date'] >= cutoff_date]
 
-    monthly = recent.groupby(['month', 'year']).agg({
-        'transactions': 'sum',
-        'avg_ticket_size': 'mean'
-    }).reset_index()
-
-    if len(monthly) > 0:
-        latest = monthly[monthly['year'] == str(current_year)].tail(1)
-        prev = monthly[monthly['year'] == str(current_year - 1)].tail(1)
-
-        if not latest.empty and not prev.empty:
-            traffic_delta = ((latest['transactions'].values[0] / prev['transactions'].values[0]) - 1) * 100
-            ticket_delta = ((latest['avg_ticket_size'].values[0] / prev['avg_ticket_size'].values[0]) - 1) * 100
+    # Traffic: Use 7d rolling avg of visits (visits_7d_avg)
+    if 'visits_7d_avg' in df.columns:
+        traffic_df = df[['date', 'visits_7d_avg']].copy()
+        traffic_df = traffic_df.dropna(subset=['visits_7d_avg'])
+        # Normalize to index (mean = 100)
+        if len(traffic_df) > 0 and traffic_df['visits_7d_avg'].mean() > 0:
+            traffic_df['Value'] = (traffic_df['visits_7d_avg'] /
+                                    traffic_df['visits_7d_avg'].mean() * 100)
         else:
-            traffic_delta, ticket_delta = -2.0, 5.0
+            traffic_df['Value'] = 100
+    else:
+        # Fallback to transactions if visits not available
+        traffic_df = df[['date', 'transactions_7d_avg']].copy() if 'transactions_7d_avg' in df.columns else df[['date', 'transactions']].copy()
+        traffic_df = traffic_df.dropna()
+        col_name = 'transactions_7d_avg' if 'transactions_7d_avg' in traffic_df.columns else 'transactions'
+        if len(traffic_df) > 0 and traffic_df[col_name].mean() > 0:
+            traffic_df['Value'] = (traffic_df[col_name] / traffic_df[col_name].mean() * 100)
+        else:
+            traffic_df['Value'] = 100
+
+    # Ticket Size: Use 7d smoothed avg_ticket_size
+    ticket_df = df[['date', 'avg_ticket_size']].copy()
+    ticket_df = ticket_df.dropna(subset=['avg_ticket_size'])
+    # Apply 7-day rolling average for smoothness
+    ticket_df['Value'] = ticket_df['avg_ticket_size'].rolling(7, min_periods=1).mean()
+
+    # Calculate YoY deltas for KPI cards (compare latest week to same week last year)
+    # Use original unfiltered data for YoY comparison
+    full_df = trend_df.copy()
+
+    # Get latest 7 days from the filtered data
+    latest_week = df.tail(7)
+
+    # Get same week from last year (365 days ago) - use full_df to ensure we have historical data
+    year_ago_start = latest_week['date'].min() - timedelta(days=365)
+    year_ago_end = latest_week['date'].max() - timedelta(days=365)
+    year_ago_week = full_df[full_df['date'].between(year_ago_start, year_ago_end)]
+
+    if not latest_week.empty and not year_ago_week.empty:
+        # For traffic delta, use visits if available, otherwise transactions
+        if 'total_visits' in latest_week.columns:
+            traffic_latest = latest_week['total_visits'].mean()
+            traffic_year_ago = year_ago_week['total_visits'].mean()
+        else:
+            traffic_latest = latest_week['transactions'].mean()
+            traffic_year_ago = year_ago_week['transactions'].mean()
+
+        if traffic_year_ago > 0:
+            traffic_delta = ((traffic_latest / traffic_year_ago) - 1) * 100
+        else:
+            traffic_delta = 0.0
+
+        # For ticket size delta
+        ticket_latest = latest_week['avg_ticket_size'].mean()
+        ticket_year_ago = year_ago_week['avg_ticket_size'].mean()
+
+        if ticket_year_ago > 0:
+            ticket_delta = ((ticket_latest / ticket_year_ago) - 1) * 100
+        else:
+            ticket_delta = 0.0
     else:
         traffic_delta, ticket_delta = -2.0, 5.0
-
-    monthly['transactions_idx'] = (monthly['transactions'] / monthly['transactions'].mean() * 100)
-
-    traffic_df = monthly[['month', 'year', 'transactions_idx']].rename(
-        columns={'month': 'Month', 'year': 'Year', 'transactions_idx': 'Value'})
-    ticket_df = monthly[['month', 'year', 'avg_ticket_size']].rename(
-        columns={'month': 'Month', 'year': 'Year', 'avg_ticket_size': 'Value'})
 
     return traffic_df, ticket_df, traffic_delta, ticket_delta
 
@@ -422,10 +492,40 @@ if 'error' in signal:
 
 live_revenue = signal.get('predicted_revenue', 9.4e9) / 1e9
 consensus_revenue = signal.get('wall_street_consensus', 9.1e9) / 1e9
+consensus_high = signal.get('consensus_revenue_high')
+consensus_low = signal.get('consensus_revenue_low')
+consensus_num_analysts = signal.get('consensus_num_analysts')
+consensus_source = signal.get('consensus_source', 'model_prediction')
+consensus_fetched_at = signal.get('consensus_fetched_at')
+consensus_is_stale = signal.get('consensus_is_stale', False)
+consensus_earnings_date = signal.get('consensus_earnings_date')
 delta_pct = signal.get('delta_pct', 3.3)
 correlation = signal.get('correlation', 0.92)
 signal_strength = signal.get('signal_strength', 'High')
 quarter = signal.get('quarter', '2025_Q1')
+
+# Map consensus source codes into something human-friendly for the UI.
+source_labels = {
+    "lseg_live": "LSEG SmartEstimate (live)",
+    "lseg_cache": "LSEG SmartEstimate (cached)",
+    "lseg_cache_stale": "LSEG SmartEstimate (stale)",
+    "historical_growth": "Historical growth estimate",
+    "historical_actual": "Historical actual",
+    "model_prediction": "Model-derived consensus",
+    "mock": "Mock consensus",
+}
+consensus_source_label = source_labels.get(consensus_source, consensus_source)
+
+# Format earnings countdown in days for quick analyst context.
+earnings_label = None
+earnings_dt = pd.to_datetime(consensus_earnings_date, errors="coerce")
+if pd.notna(earnings_dt):
+    days_to_earnings = (earnings_dt.date() - datetime.now().date()).days
+    date_label = earnings_dt.strftime("%b %d, %Y")
+    if days_to_earnings >= 0:
+        earnings_label = f"Earnings in {days_to_earnings} days ({date_label})"
+    else:
+        earnings_label = f"Earnings {abs(days_to_earnings)} days ago ({date_label})"
 
 # =============================================================================
 # LIVE SIGNAL CARD
@@ -433,12 +533,14 @@ quarter = signal.get('quarter', '2025_Q1')
 _, signal_col = st.columns([3, 1])
 with signal_col:
     delta_class = "delta-up" if delta_pct >= 0 else "delta-down"
+    earnings_line = f'<div class="card-subnote">{earnings_label}</div>' if earnings_label else ""
     st.markdown(
         f"""
 <div class="signal-card">
   <div class="card-title">Live Trade Signal</div>
   <div class="card-value">{delta_pct:+.1f}%</div>
   <div class="card-note">Revenue proxy vs consensus</div>
+  {earnings_line}
   <div class="delta-pill {delta_class}">Signal: {signal_strength} ({correlation:.2f})</div>
 </div>
 """,
@@ -449,6 +551,16 @@ with signal_col:
 # ALPHA METRICS
 # =============================================================================
 st.markdown('<div class="section-label">Alpha Metrics</div>', unsafe_allow_html=True)
+
+range_note = "Range unavailable"
+if consensus_low is not None and consensus_high is not None:
+    range_note = f"Range ${consensus_low / 1e9:.2f}B - ${consensus_high / 1e9:.2f}B"
+
+analyst_note = "Analyst count unavailable"
+if consensus_num_analysts:
+    analyst_note = f"{consensus_num_analysts} analysts"
+
+stale_note = "Consensus stale - using fallback" if consensus_is_stale else ""
 
 cols = st.columns(4)
 cols[0].markdown(
@@ -466,7 +578,10 @@ cols[1].markdown(
 <div class="alpha-card">
   <div class="card-title">Wall St. Consensus</div>
   <div class="card-value">${consensus_revenue:.2f}B</div>
-  <div class="card-note">FactSet estimate</div>
+  <div class="card-note">{consensus_source_label}</div>
+  <div class="card-subnote">{range_note}</div>
+  <div class="card-subnote">{analyst_note}</div>
+  <div class="card-subnote">{stale_note}</div>
 </div>
 """,
     unsafe_allow_html=True,
@@ -501,9 +616,21 @@ cols[3].markdown(
 # =============================================================================
 st.markdown('<div class="section-label">Why Revenue Is Moving</div>', unsafe_allow_html=True)
 
-traffic_df, ticket_df, traffic_delta, ticket_delta = get_chart_data(trend_df)
+# Add date range selector
+date_range_options = {
+    "Last 90 Days": 90,
+    "Last 6 Months": 180,
+    "Last Year": 365,
+    "All Available": 9999
+}
+selected_range = st.selectbox(
+    "Time Range",
+    options=list(date_range_options.keys()),
+    index=2  # Default to "Last Year"
+)
+date_range_days = date_range_options[selected_range]
 
-months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+traffic_df, ticket_df, traffic_delta, ticket_delta = get_chart_data(trend_df, date_range_days)
 
 # Dark theme colors for charts
 chart_bg = "#1c2128"
@@ -511,33 +638,50 @@ grid_color = "#30363d"
 text_color = "#8b949e"
 title_color = "#e6edf3"
 
-def build_chart(df, title, y_title, colors, fmt):
+def build_chart(df, title, y_title, color_single, fmt):
+    """Build an Altair time series chart with temporal encoding.
+
+    Args:
+        df: DataFrame with 'date' and 'Value' columns
+        title: Chart title
+        y_title: Y-axis title
+        color_single: Single color for the line (hex string)
+        fmt: Format string for tooltip values
+    """
     return (
         alt.Chart(df)
-        .mark_line(point=True, strokeWidth=2.5)
+        .mark_line(strokeWidth=2.5)  # Removed point=True for smoother lines
         .encode(
-            x=alt.X("Month:O", sort=months, axis=alt.Axis(
-                labelColor=text_color,
-                titleColor=title_color,
-                gridColor=grid_color,
-                domainColor=grid_color,
-            )),
-            y=alt.Y("Value:Q", title=y_title, scale=alt.Scale(zero=False), axis=alt.Axis(
-                labelColor=text_color,
-                titleColor=title_color,
-                gridColor=grid_color,
-                domainColor=grid_color,
-            )),
-            color=alt.Color("Year:N", scale=alt.Scale(range=colors),
-                          legend=alt.Legend(orient="top", title=None, labelColor=text_color)),
-            tooltip=["Month", "Year", alt.Tooltip("Value:Q", format=fmt)],
+            x=alt.X("date:T",
+                    title="Date",
+                    axis=alt.Axis(
+                        format="%b %Y",  # e.g., "Jan 2024"
+                        labelAngle=-45,
+                        labelColor=text_color,
+                        titleColor=title_color,
+                        gridColor=grid_color,
+                        domainColor=grid_color,
+                    )),
+            y=alt.Y("Value:Q",
+                    title=y_title,
+                    scale=alt.Scale(zero=False),
+                    axis=alt.Axis(
+                        labelColor=text_color,
+                        titleColor=title_color,
+                        gridColor=grid_color,
+                        domainColor=grid_color,
+                    )),
+            color=alt.value(color_single),  # Single color
+            tooltip=[
+                alt.Tooltip("date:T", title="Date", format="%b %d, %Y"),
+                alt.Tooltip("Value:Q", title=y_title, format=fmt)
+            ],
         )
         .properties(height=280, title=alt.Title(title, color=title_color))
         .configure_view(fill=chart_bg, strokeOpacity=0)
-        .configure_axis(labelFont="IBM Plex Mono", titleFont="Space Grotesk", labelFontSize=11, titleFontSize=12)
+        .configure_axis(labelFont="IBM Plex Mono", titleFont="Space Grotesk",
+                        labelFontSize=11, titleFontSize=12)
         .configure_title(font="Space Grotesk", fontSize=14, anchor="start")
-        .configure_legend(labelFont="IBM Plex Mono", labelFontSize=11)
-        .configure_point(size=60)
     )
 
 chart_cols = st.columns(2)
@@ -545,14 +689,14 @@ chart_cols = st.columns(2)
 with chart_cols[0]:
     traffic_chart = build_chart(
         traffic_df, "Foot Traffic (Proxy)", "Store Visits (Index)",
-        ["#3fb950", "#f85149"], ".1f"
+        "#3fb950", ".1f"  # Single color: green
     )
     st.altair_chart(traffic_chart, use_container_width=True)
 
 with chart_cols[1]:
     ticket_chart = build_chart(
         ticket_df, "Ticket Size (Consumer Edge)", "Avg Ticket ($)",
-        ["#58a6ff", "#d29922"], "$,.2f"
+        "#58a6ff", "$,.2f"  # Single color: blue
     )
     st.altair_chart(ticket_chart, use_container_width=True)
 
@@ -614,10 +758,20 @@ engine_cols[2].markdown(
 
 # Footer
 mode = "Live" if is_live_data else "Demo"
+consensus_asof = ""
+if consensus_fetched_at:
+    parsed_asof = pd.to_datetime(consensus_fetched_at, errors="coerce")
+    if pd.notna(parsed_asof):
+        consensus_asof = parsed_asof.strftime("%Y-%m-%d %H:%M")
+
+is_lseg_source = consensus_source.startswith("lseg")
+lseg_badge = '<span class="lseg-badge">Powered by LSEG</span>' if is_lseg_source else ""
+
 st.markdown(
     f"""
 <div class="footer-info">
-Sources: Consumer Edge spend data, FactSet consensus estimates | Mode: {mode} | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+Sources: Consumer Edge spend data | Consensus: {consensus_source_label} | Mode: {mode} | Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+<div class="consensus-meta">Consensus as of: {consensus_asof or "n/a"} {lseg_badge}</div>
 </div>
 """,
     unsafe_allow_html=True,
