@@ -1,13 +1,12 @@
 """
 News Feed Component for Alt-Data Pulse Dashboard
 
-Bloomberg Terminal-style news panel with scrollable headlines,
-images, and translation indicators.
+Clean Bloomberg Terminal-style news panel with clickable headlines.
 """
 
-from dash import html, dcc
+from dash import html
 import dash_bootstrap_components as dbc
-from typing import Dict, List, Optional
+from typing import Dict, List
 import sys
 from pathlib import Path
 
@@ -17,20 +16,6 @@ if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
 from utils import format_news_timestamp
-
-# Language code to name mapping
-LANGUAGE_NAMES = {
-    "ja": "Japanese",
-    "zh": "Chinese",
-    "ko": "Korean",
-    "de": "German",
-    "fr": "French",
-    "es": "Spanish",
-    "pt": "Portuguese",
-    "it": "Italian",
-    "ru": "Russian",
-    "ar": "Arabic",
-}
 
 
 def create_news_feed_panel(
@@ -68,24 +53,15 @@ def create_news_feed_panel(
 
     if any_stale and show_stale_indicator:
         header_children.append(
-            html.Span(
-                "CACHED",
-                className="news-stale-badge",
-            )
+            html.Span("CACHED", className="news-stale-badge")
         )
 
     return html.Div(
         [
             # Panel header
-            html.Div(
-                header_children,
-                className="news-panel-header",
-            ),
+            html.Div(header_children, className="news-panel-header"),
             # Scrollable news list
-            html.Div(
-                news_items,
-                className="news-scroll-container",
-            ),
+            html.Div(news_items, className="news-scroll-container"),
         ],
         className="news-panel",
     )
@@ -93,139 +69,52 @@ def create_news_feed_panel(
 
 def create_news_item(headline: Dict, index: int = 0) -> html.Div:
     """
-    Create a single news item with Bloomberg styling.
+    Create a single news item - simple timestamp + headline layout.
 
     Args:
-        headline: Dictionary with keys: headline, timestamp, story_id, source,
-                  image_url, language, is_translated, story_url, is_stale
+        headline: Dictionary with headline data
         index: Index of the headline in the list
 
     Returns:
         Dash HTML component for a single news item
     """
-    # Format the timestamp for display
+    # Format the timestamp
     time_display = format_news_timestamp(headline.get("timestamp"))
 
-    # Get source badge text
-    source = headline.get("source", "")
-
-    # Get image URL if available
-    image_url = headline.get("image_url")
-
-    # Check for translation
-    language = headline.get("language", "en")
+    # Get headline text and translation status
+    headline_text = headline.get("headline", "")
     is_translated = headline.get("is_translated", False)
+    story_id = headline.get("story_id", str(index))
 
-    # Get story URL for click handling
-    story_url = headline.get("story_url")
-    story_id = headline.get("story_id", "")
-
-    # Build content elements
-    content_elements = []
-
-    # Timestamp row with language indicator
-    timestamp_row = [
-        html.Span(time_display, className="news-timestamp-text"),
+    # Build the item content
+    item_content = [
+        # Timestamp
+        html.Span(time_display, className="news-time"),
+        # Headline text
+        html.Span(headline_text, className="news-text"),
     ]
 
-    # Add language indicator for non-English content
-    if language != "en":
-        lang_name = LANGUAGE_NAMES.get(language, language.upper())
-        if is_translated:
-            timestamp_row.append(
-                html.Span(
-                    f" [Translated from {lang_name}]",
-                    className="news-language-badge news-translated",
-                )
-            )
-        else:
-            timestamp_row.append(
-                html.Span(
-                    f" [{lang_name}]",
-                    className="news-language-badge",
-                )
-            )
+    # Add translated indicator if applicable
+    if is_translated:
+        item_content.append(
+            html.Span(" [Translated]", className="news-translated-tag")
+        )
 
-    content_elements.append(
-        html.Div(timestamp_row, className="news-timestamp")
+    # Wrap in clickable div with pattern-matching ID
+    return html.Div(
+        item_content,
+        className="news-item",
+        id={"type": "news-headline", "index": index, "story_id": story_id},
+        n_clicks=0,
     )
-
-    # Main content area (image + headline)
-    main_content = []
-
-    # Add thumbnail image if available
-    if image_url:
-        main_content.append(
-            html.Div(
-                html.Img(
-                    src=image_url,
-                    className="news-thumbnail",
-                    alt="News image",
-                ),
-                className="news-thumbnail-container",
-            )
-        )
-
-    # Headline text
-    headline_text = headline.get("headline", "")
-    main_content.append(
-        html.Div(
-            headline_text,
-            className="news-headline" + (" news-headline-with-image" if image_url else ""),
-        )
-    )
-
-    content_elements.append(
-        html.Div(main_content, className="news-content-row")
-    )
-
-    # Source badge row
-    badges = []
-    if source:
-        badges.append(
-            html.Span(source, className="news-source-badge")
-        )
-
-    if badges:
-        content_elements.append(
-            html.Div(badges, className="news-badges-row")
-        )
-
-    # Wrap in clickable container if story URL available
-    if story_url:
-        return html.A(
-            html.Div(
-                content_elements,
-                className="news-item-content",
-            ),
-            href=story_url,
-            target="_blank",
-            rel="noopener noreferrer",
-            className="news-item news-item-clickable",
-            id={"type": "news-item", "index": story_id},
-        )
-    else:
-        # Non-clickable item (no URL available)
-        return html.Div(
-            content_elements,
-            className="news-item",
-            id={"type": "news-item", "index": story_id},
-        )
 
 
 def create_news_unavailable_message() -> html.Div:
-    """
-    Create fallback message when news is unavailable.
-
-    Returns:
-        Dash HTML component showing unavailable message
-    """
+    """Create fallback message when news is unavailable."""
     return html.Div(
         [
             html.Div(
-                [
-                    html.Span("NEWS", className="news-panel-title"),
-                ],
+                [html.Span("NEWS", className="news-panel-title")],
                 className="news-panel-header",
             ),
             html.Div(
@@ -234,18 +123,11 @@ def create_news_unavailable_message() -> html.Div:
                         [
                             html.Div(
                                 "News temporarily unavailable",
-                                style={
-                                    "color": "#8b949e",
-                                    "fontSize": "0.875rem",
-                                    "marginBottom": "0.5rem",
-                                },
+                                className="news-unavailable-text",
                             ),
                             html.Div(
                                 "Waiting for LSEG connection...",
-                                style={
-                                    "color": "#6e7681",
-                                    "fontSize": "0.75rem",
-                                },
+                                className="news-unavailable-subtext",
                             ),
                         ],
                         className="news-unavailable",
@@ -259,29 +141,43 @@ def create_news_unavailable_message() -> html.Div:
 
 
 def create_news_loading() -> html.Div:
-    """
-    Create loading indicator for news panel.
-
-    Returns:
-        Dash HTML component showing loading state
-    """
+    """Create loading indicator for news panel."""
     return html.Div(
         [
             html.Div(
-                [
-                    html.Span("NEWS", className="news-panel-title"),
-                ],
+                [html.Span("NEWS", className="news-panel-title")],
                 className="news-panel-header",
             ),
             html.Div(
-                [
-                    html.Div(
-                        "Loading headlines...",
-                        className="news-loading",
-                    ),
-                ],
+                [html.Div("Loading headlines...", className="news-loading")],
                 className="news-scroll-container",
             ),
         ],
         className="news-panel",
+    )
+
+
+def create_story_modal() -> dbc.Modal:
+    """
+    Create the modal component for displaying full story.
+    This should be added to the app layout once.
+    """
+    return dbc.Modal(
+        [
+            dbc.ModalHeader(
+                dbc.ModalTitle(id="story-modal-title"),
+                close_button=True,
+                className="story-modal-header",
+            ),
+            dbc.ModalBody(
+                [
+                    html.Div(id="story-modal-meta", className="story-modal-meta"),
+                    html.Div(id="story-modal-content", className="story-modal-content"),
+                ],
+            ),
+        ],
+        id="story-modal",
+        size="lg",
+        is_open=False,
+        className="story-modal",
     )

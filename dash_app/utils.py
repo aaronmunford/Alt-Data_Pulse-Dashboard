@@ -102,6 +102,30 @@ def load_brand_news(brand: str, count: int = 15) -> List[Dict]:
         return []
 
 
+def load_story_content(story_id: str) -> Optional[str]:
+    """
+    Load full story content by story ID.
+
+    Args:
+        story_id: The LSEG story identifier
+
+    Returns:
+        Story content text, or None if unavailable
+    """
+    if not story_id:
+        return None
+
+    try:
+        client = get_news_client()
+        story = client.get_story(story_id)
+        if story and story.get("content"):
+            return story["content"]
+        return None
+    except Exception as e:
+        print(f"Error loading story {story_id}: {e}")
+        return None
+
+
 def format_news_timestamp(timestamp: Optional[str]) -> str:
     """
     Format a news timestamp for display.

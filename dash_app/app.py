@@ -4,7 +4,7 @@ Phase 2H: Production-Ready Bloomberg-Style Dashboard
 """
 
 import dash
-from dash import html, dcc, callback, Input, Output, State
+from dash import html, dcc, callback, Input, Output, State, ALL, ctx
 import dash_bootstrap_components as dbc
 import pandas as pd
 import json
@@ -15,6 +15,7 @@ from utils import (
     load_brand_signal,
     load_brand_trend_data,
     load_brand_news,
+    load_story_content,
     get_available_brands,
     format_currency,
     format_delta,
@@ -26,7 +27,11 @@ from utils import (
 from charts import create_traffic_chart, create_ticket_chart, create_combined_chart
 
 # Import news feed component
-from components.news_feed import create_news_feed_panel, create_news_unavailable_message
+from components.news_feed import (
+    create_news_feed_panel,
+    create_news_unavailable_message,
+    create_story_modal,
+)
 
 # Initialize Dash app with external stylesheets
 app = dash.Dash(
@@ -63,6 +68,8 @@ app.layout = dbc.Container(
         ),
         # Store for news data
         dcc.Store(id="news-data-store", data=[]),
+        # Story modal for displaying full news articles
+        create_story_modal(),
         # Header Section
         dbc.Row(
             [
@@ -791,6 +798,83 @@ def update_news_feed(brand: str, n_intervals: int, refresh_trigger):
     except Exception as e:
         print(f"Error updating news feed: {e}")
         return create_news_unavailable_message(), []
+
+
+# ============================================================================
+# Story Modal Callback
+# ============================================================================
+
+
+@callback(
+    [
+        Output("story-modal", "is_open"),
+        Output("story-modal-title", "children"),
+        Output("story-modal-meta", "children"),
+        Output("story-modal-content", "children"),
+    ],
+    [
+        Input({"type": "news-headline", "index": ALL, "story_id": ALL}, "n_clicks"),
+    ],
+    [
+        State("news-data-store", "data"),
+        State("story-modal", "is_open"),
+    ],
+    prevent_initial_call=True,
+)
+def open_story_modal(n_clicks_list, news_data, is_open):
+    """
+    Open story modal when a headline is clicked.
+
+    Args:
+        n_clicks_list: List of click counts for all headlines
+        news_data: Stored news data from the feed
+        is_open: Current modal state
+
+    Returns:
+        Tuple of (is_open, title, meta, content)
+    """
+    # Check if any headline was actually clicked
+    if not any(n_clicks_list):
+        return False, "", "", ""
+
+    # Find which headline was clicked
+    triggered = ctx.triggered_id
+    if not triggered:
+        return False, "", "", ""
+
+    clicked_index = triggered.get("index")
+    story_id = triggered.get("story_id")
+
+    if clicked_index is None or not news_data:
+        return False, "", "", ""
+
+    # Get the headline data
+    if clicked_index >= len(news_data):
+        return False, "", "", ""
+
+    headline_data = news_data[clicked_index]
+    headline_text = headline_data.get("headline", "")
+    source = headline_data.get("source", "Unknown")
+    timestamp = headline_data.get("timestamp", "")
+
+    # Format timestamp for display
+    from utils import format_news_timestamp
+    time_display = format_news_timestamp(timestamp)
+
+    # Fetch the full story content
+    story_content = load_story_content(story_id)
+
+    if story_content:
+        content_text = story_content
+    else:
+        content_text = "Full story content is not available. This may be due to LSEG connection issues or the story is no longer accessible."
+
+    # Build meta info
+    meta_text = f"{source} • {time_display}"
+    if headline_data.get("is_translated"):
+        meta_text += " • Translated"
+
+    return True, headline_text, meta_text, content_text
 
 
 # ============================================================================

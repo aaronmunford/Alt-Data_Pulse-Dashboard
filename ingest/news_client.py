@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 try:
+    import requests
+except ImportError:
+    requests = None
+
+try:
     import refinitiv.data as rd
     from refinitiv.data.content import news
 except Exception:  # pragma: no cover - optional dependency
@@ -278,10 +283,7 @@ class LSEGNewsClient:
 
                 # Translate non-English headlines
                 if language != "en" and headline_text:
-                    translated = self._translate_headline(headline_text, language)
-                    if translated and translated != headline_text:
-                        headline_text = translated
-                        is_translated = True
+                    headline_text, is_translated = self._translate_headline(headline_text, language)
 
                 headline_data = {
                     "headline": headline_text,
@@ -339,27 +341,51 @@ class LSEGNewsClient:
         # Default to English
         return "en"
 
-    def _translate_headline(self, text: str, source_lang: str) -> Optional[str]:
+    def _translate_headline(self, text: str, source_lang: str) -> Tuple[str, bool]:
         """
-        Translate a headline to English.
-        Uses a simple approach - in production, integrate with a translation API.
+        Translate a headline to English using LibreTranslate.
+
+        Args:
+            text: The text to translate
+            source_lang: Source language code (e.g., "ja", "zh")
+
+        Returns:
+            Tuple of (translated_text, was_translated)
         """
-        # For now, return original with language indicator
-        # In production, you could integrate Google Translate, DeepL, or similar
-        lang_names = {
-            "ja": "Japanese",
-            "zh": "Chinese",
-            "ko": "Korean",
-            "de": "German",
-            "fr": "French",
-            "es": "Spanish",
-            "pt": "Portuguese",
-            "it": "Italian",
-            "ru": "Russian",
-            "ar": "Arabic",
-        }
-        # Return original - the UI will show "[Translated from X]" indicator
-        return text
+        if requests is None:
+            return text, False
+
+        # LibreTranslate public instance (free, no API key needed)
+        # You can also self-host or use other instances
+        translate_url = os.getenv(
+            "LIBRETRANSLATE_URL",
+            "https://libretranslate.com/translate"
+        )
+
+        try:
+            response = requests.post(
+                translate_url,
+                json={
+                    "q": text,
+                    "source": source_lang,
+                    "target": "en",
+                    "format": "text",
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=5,
+            )
+
+            if response.ok:
+                result = response.json()
+                translated = result.get("translatedText", "")
+                if translated and translated != text:
+                    return translated, True
+
+        except Exception as e:
+            # Translation failed - return original
+            self.last_error = f"Translation error: {e}"
+
+        return text, False
 
     def _extract_source(self, row) -> str:
         """Extract the news source from a row, with fallbacks."""
