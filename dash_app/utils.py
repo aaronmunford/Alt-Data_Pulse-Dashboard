@@ -17,8 +17,77 @@ except Exception as exc:
 from ingest.predictor import RevenuePredictor
 from ingest.news_client import LSEGNewsClient
 import pandas as pd
+import re
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
+from html.parser import HTMLParser
+
+# HTML Stripper for cleaning story content
+class _HTMLStripper(HTMLParser):
+    """Simple HTML tag stripper."""
+    def __init__(self):
+        super().__init__()
+        self.reset()
+        self.fed = []
+
+    def handle_data(self, data):
+        self.fed.append(data)
+
+    def get_data(self):
+        return ''.join(self.fed)
+
+
+def strip_html_tags(html_content: str) -> str:
+    """
+    Strip HTML tags from content and return clean text.
+
+    Args:
+        html_content: HTML string to clean
+
+    Returns:
+        Plain text with HTML tags removed
+    """
+    if not html_content:
+        return ""
+
+    # First, handle common HTML entities
+    text = html_content
+    text = re.sub(r'&nbsp;', ' ', text)
+    text = re.sub(r'&amp;', '&', text)
+    text = re.sub(r'&lt;', '<', text)
+    text = re.sub(r'&gt;', '>', text)
+    text = re.sub(r'&quot;', '"', text)
+    text = re.sub(r'&#39;', "'", text)
+
+    # Remove script and style elements entirely
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Replace <br> and <p> with newlines
+    text = re.sub(r'<br\s*/?\s*>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'</p>', '\n\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<p[^>]*>', '', text, flags=re.IGNORECASE)
+
+    # Replace heading tags with newlines
+    text = re.sub(r'</h[1-6]>', '\n\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<h[1-6][^>]*>', '', text, flags=re.IGNORECASE)
+
+    # Remove all remaining HTML tags
+    try:
+        stripper = _HTMLStripper()
+        stripper.feed(text)
+        text = stripper.get_data()
+    except Exception:
+        # Fallback: simple regex strip
+        text = re.sub(r'<[^>]+>', '', text)
+
+    # Clean up whitespace
+    text = re.sub(r'\n\s*\n', '\n\n', text)  # Multiple newlines to double
+    text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces to single
+    text = text.strip()
+
+    return text
+
 
 # Singleton predictor instance (process-local; run workers=1 to avoid shared-state issues)
 _predictor = None
@@ -110,7 +179,7 @@ def load_story_content(story_id: str) -> Optional[str]:
         story_id: The LSEG story identifier
 
     Returns:
-        Story content text, or None if unavailable
+        Story content text (HTML stripped), or None if unavailable
     """
     if not story_id:
         return None
@@ -119,7 +188,10 @@ def load_story_content(story_id: str) -> Optional[str]:
         client = get_news_client()
         story = client.get_story(story_id)
         if story and story.get("content"):
-            return story["content"]
+            # Strip HTML tags for clean display
+            raw_content = story["content"]
+            clean_content = strip_html_tags(raw_content)
+            return clean_content if clean_content else None
         return None
     except Exception as e:
         print(f"Error loading story {story_id}: {e}")
@@ -132,45 +204,57 @@ def format_news_timestamp(timestamp: Optional[str]) -> str:
     Shows relative time for recent news, absolute time for older.
 
     Args:
-        timestamp: ISO format timestamp string
+        timestamp: ISO format timestamp string or pandas Timestamp
 
     Returns:
-        Formatted string like "2h ago", "Yesterday 14:30", or "Jan 9 14:30"
+        Formatted string like "14:30", "2h ago", or "Jan 9"
     """
     if not timestamp:
-        return ""
+        return "—"
 
     try:
-        # Parse the ISO timestamp
-        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        # Handle different timestamp formats
+        if hasattr(timestamp, 'isoformat'):
+            # It's already a datetime object (pandas Timestamp)
+            dt = timestamp
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        elif isinstance(timestamp, str):
+            # Parse the ISO timestamp string
+            ts = timestamp.replace("Z", "+00:00")
+            # Handle pandas timestamp format with space instead of T
+            ts = ts.replace(" ", "T") if "T" not in ts and " " in ts else ts
+            dt = datetime.fromisoformat(ts)
+        else:
+            return "—"
+
         now = datetime.now(timezone.utc)
         diff = now - dt
 
         # Less than 1 minute ago
         if diff.total_seconds() < 60:
-            return "Just now"
+            return "now"
 
         # Less than 1 hour ago
         if diff.total_seconds() < 3600:
             minutes = int(diff.total_seconds() / 60)
-            return f"{minutes}m ago"
+            return f"{minutes}m"
 
-        # Less than 24 hours ago
+        # Less than 24 hours ago - show time
         if diff.total_seconds() < 86400:
             hours = int(diff.total_seconds() / 3600)
-            return f"{hours}h ago"
+            return f"{hours}h"
 
         # Less than 7 days ago
         if diff.days < 7:
-            if diff.days == 1:
-                return f"Yesterday {dt.strftime('%H:%M')}"
-            return f"{diff.days}d ago"
+            return f"{diff.days}d"
 
         # Older than a week - show date
-        return dt.strftime("%b %d %H:%M")
+        return dt.strftime("%b %d")
 
-    except Exception:
-        return ""
+    except Exception as e:
+        # If all parsing fails, return a dash
+        return "—"
 
 
 def get_available_brands():
