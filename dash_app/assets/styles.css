@@ -376,3 +376,107 @@ button:active, .dash-button:active {
         margin-top: 1rem;
     }
 }
+
+/* ============================================================================
+   News Item - Enhanced Styles (Images, Language, Clickable)
+   ============================================================================ */
+
+/* Clickable news items */
+a.news-item {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+
+a.news-item:hover {
+    text-decoration: none;
+}
+
+.news-item-clickable {
+    cursor: pointer;
+}
+
+.news-item-clickable:hover .news-headline {
+    color: var(--accent-blue);
+}
+
+.news-item-content {
+    width: 100%;
+}
+
+/* Content row with image + headline */
+.news-content-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 0.375rem;
+}
+
+/* Thumbnail image */
+.news-thumbnail-container {
+    flex-shrink: 0;
+    width: 60px;
+    height: 45px;
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: var(--bg-secondary);
+}
+
+.news-thumbnail {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Headline with image */
+.news-headline-with-image {
+    flex: 1;
+    -webkit-line-clamp: 2;
+}
+
+/* Timestamp text */
+.news-timestamp-text {
+    color: var(--text-muted);
+}
+
+/* Language badge */
+.news-language-badge {
+    font-family: var(--font-mono);
+    font-size: 0.5625rem;
+    color: var(--accent-orange);
+    margin-left: 0.25rem;
+}
+
+.news-language-badge.news-translated {
+    color: var(--accent-green);
+}
+
+/* Badges row */
+.news-badges-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+/* Hover effect for clickable items */
+.news-item-clickable:hover {
+    background-color: var(--bg-hover);
+}
+
+.news-item-clickable:active {
+    background-color: #2d3250;
+}
+
+/* External link indicator */
+.news-item-clickable .news-headline::after {
+    content: " ↗";
+    font-size: 0.625rem;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.news-item-clickable:hover .news-headline::after {
+    opacity: 1;
+}

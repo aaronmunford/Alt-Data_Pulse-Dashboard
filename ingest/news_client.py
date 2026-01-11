@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +26,12 @@ try:
     from ingest.ticker_mapping import brand_to_ticker, supported_tickers
 except ImportError:  # Allow running from inside the ingest/ folder
     from ticker_mapping import brand_to_ticker, supported_tickers
+
+
+# Connection throttle: don't retry LSEG connection more than once per N seconds
+_last_connection_attempt: Optional[datetime] = None
+_last_connection_success: bool = False
+CONNECTION_THROTTLE_SECONDS = 30  # Wait 30s between failed connection attempts
 
 
 class LSEGNewsClient:
@@ -55,11 +62,36 @@ class LSEGNewsClient:
         # News older than 6 hours is too stale to display
         self.stale_threshold = timedelta(hours=6)
 
-    def connect(self, retries: int = 3, backoff_seconds: int = 1) -> bool:
+    def _should_attempt_connection(self) -> bool:
+        """Check if we should attempt LSEG connection (throttle failed attempts)."""
+        global _last_connection_attempt, _last_connection_success
+
+        # Always allow if last attempt succeeded
+        if _last_connection_success:
+            return True
+
+        # If never attempted, allow
+        if _last_connection_attempt is None:
+            return True
+
+        # Throttle failed attempts
+        elapsed = (datetime.now(timezone.utc) - _last_connection_attempt).total_seconds()
+        return elapsed >= CONNECTION_THROTTLE_SECONDS
+
+    def connect(self, retries: int = 1, backoff_seconds: int = 1) -> bool:
         """Try to open a session to LSEG Workspace with retry + backoff."""
+        global _last_connection_attempt, _last_connection_success
+
         if rd is None:
             self.last_error = "refinitiv-data is not installed"
             return False
+
+        # Check throttle
+        if not self._should_attempt_connection():
+            self.last_error = "Connection throttled - waiting before retry"
+            return False
+
+        _last_connection_attempt = datetime.now(timezone.utc)
 
         for attempt in range(retries):
             try:
@@ -68,10 +100,14 @@ class LSEGNewsClient:
                 else:
                     rd.open_session()
                 self._session_open = True
+                _last_connection_success = True
                 return True
             except Exception as exc:
                 self.last_error = str(exc)
-                time.sleep(backoff_seconds * (2**attempt))
+                if attempt < retries - 1:
+                    time.sleep(backoff_seconds * (2**attempt))
+
+        _last_connection_success = False
         return False
 
     def disconnect(self) -> None:
@@ -102,6 +138,10 @@ class LSEGNewsClient:
             - timestamp: ISO timestamp when the story was published
             - story_id: Unique identifier for the story
             - source: News source (e.g., "Reuters", "Dow Jones")
+            - image_url: URL to news image (if available)
+            - language: Language code (e.g., "en", "ja")
+            - is_translated: Whether headline was translated
+            - story_url: URL to full story (if available)
             - is_stale: Whether this came from stale cache
         """
         # 1) Prefer cache if it's still fresh (keeps dashboard fast).
@@ -112,9 +152,9 @@ class LSEGNewsClient:
                 item["is_stale"] = False
             return cached
 
-        # 2) Attempt live LSEG fetch.
+        # 2) Attempt live LSEG fetch (with throttling).
         headlines = None
-        if self.connect():
+        if self._should_attempt_connection() and self.connect():
             try:
                 headlines = self._fetch_live_headlines(ticker, count)
             finally:
@@ -148,6 +188,41 @@ class LSEGNewsClient:
         if not ticker:
             return []
         return self.get_headlines(ticker, count)
+
+    def get_story(self, story_id: str) -> Optional[Dict]:
+        """
+        Fetch full story content by story ID.
+
+        Args:
+            story_id: The story identifier from headlines
+
+        Returns:
+            Dictionary with story content, or None if unavailable
+        """
+        if rd is None or not story_id:
+            return None
+
+        if not self._should_attempt_connection():
+            return None
+
+        if not self.connect():
+            return None
+
+        try:
+            story = rd.news.get_story(story_id)
+            if story is None:
+                return None
+
+            return {
+                "story_id": story_id,
+                "content": str(story) if story else "",
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            self.last_error = str(exc)
+            return None
+        finally:
+            self.disconnect()
 
     def refresh_cache(self, tickers: Optional[List[str]] = None, count: int = 15) -> Dict[str, List[Dict]]:
         """
@@ -197,11 +272,26 @@ class LSEGNewsClient:
 
             headlines = []
             for _, row in response.iterrows():
+                headline_text = self._safe_str(row.get("headline", row.get("text", "")))
+                language = self._detect_language(headline_text, row)
+                is_translated = False
+
+                # Translate non-English headlines
+                if language != "en" and headline_text:
+                    translated = self._translate_headline(headline_text, language)
+                    if translated and translated != headline_text:
+                        headline_text = translated
+                        is_translated = True
+
                 headline_data = {
-                    "headline": self._safe_str(row.get("headline", row.get("text", ""))),
+                    "headline": headline_text,
                     "timestamp": self._to_iso(row.get("versionCreated", row.get("pubDate"))),
                     "story_id": self._safe_str(row.get("storyId", row.get("id", ""))),
                     "source": self._extract_source(row),
+                    "image_url": self._extract_image_url(row),
+                    "language": language,
+                    "is_translated": is_translated,
+                    "story_url": self._extract_story_url(row),
                     "is_stale": False,
                 }
                 if headline_data["headline"]:  # Only include if we have a headline
@@ -212,6 +302,64 @@ class LSEGNewsClient:
         except Exception as exc:
             self.last_error = str(exc)
             return []
+
+    def _detect_language(self, text: str, row) -> str:
+        """Detect the language of headline text."""
+        # First check if LSEG provides language metadata
+        for col in ["language", "lang", "languageCode"]:
+            if col in row.index and row[col]:
+                lang = str(row[col]).lower()[:2]
+                if lang in ["en", "ja", "zh", "ko", "de", "fr", "es", "pt", "it", "ru"]:
+                    return lang
+
+        # Simple heuristic detection based on character sets
+        if not text:
+            return "en"
+
+        # Japanese (Hiragana, Katakana, or CJK with Japanese context)
+        if re.search(r'[\u3040-\u309F\u30A0-\u30FF]', text):
+            return "ja"
+
+        # Chinese (CJK without Japanese kana)
+        if re.search(r'[\u4E00-\u9FFF]', text) and not re.search(r'[\u3040-\u309F\u30A0-\u30FF]', text):
+            return "zh"
+
+        # Korean (Hangul)
+        if re.search(r'[\uAC00-\uD7AF\u1100-\u11FF]', text):
+            return "ko"
+
+        # Cyrillic (Russian, etc.)
+        if re.search(r'[\u0400-\u04FF]', text):
+            return "ru"
+
+        # Arabic
+        if re.search(r'[\u0600-\u06FF]', text):
+            return "ar"
+
+        # Default to English
+        return "en"
+
+    def _translate_headline(self, text: str, source_lang: str) -> Optional[str]:
+        """
+        Translate a headline to English.
+        Uses a simple approach - in production, integrate with a translation API.
+        """
+        # For now, return original with language indicator
+        # In production, you could integrate Google Translate, DeepL, or similar
+        lang_names = {
+            "ja": "Japanese",
+            "zh": "Chinese",
+            "ko": "Korean",
+            "de": "German",
+            "fr": "French",
+            "es": "Spanish",
+            "pt": "Portuguese",
+            "it": "Italian",
+            "ru": "Russian",
+            "ar": "Arabic",
+        }
+        # Return original - the UI will show "[Translated from X]" indicator
+        return text
 
     def _extract_source(self, row) -> str:
         """Extract the news source from a row, with fallbacks."""
@@ -227,9 +375,29 @@ class LSEGNewsClient:
                     "NS:PRN": "PR Newswire",
                     "NS:GNW": "GlobeNewswire",
                     "NS:MKW": "MarketWatch",
+                    "NS:AFX": "AFX News",
+                    "NS:NIKKEI": "Nikkei",
                 }
                 return source_map.get(source, source.replace("NS:", ""))
         return "Unknown"
+
+    def _extract_image_url(self, row) -> Optional[str]:
+        """Extract image URL from news row if available."""
+        for col in ["thumbnailUrl", "imageUrl", "thumbnail", "image", "mediaUrl"]:
+            if col in row.index and row[col]:
+                url = str(row[col])
+                if url.startswith("http"):
+                    return url
+        return None
+
+    def _extract_story_url(self, row) -> Optional[str]:
+        """Extract URL to full story if available."""
+        for col in ["newsLink", "storyUrl", "url", "link"]:
+            if col in row.index and row[col]:
+                url = str(row[col])
+                if url.startswith("http"):
+                    return url
+        return None
 
     def _safe_str(self, value) -> str:
         """Safely convert a value to string."""
