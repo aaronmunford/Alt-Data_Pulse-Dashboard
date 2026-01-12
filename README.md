@@ -79,11 +79,5 @@ Outputs land in `data/` and are loaded by the dashboard.
 - Workspace tabs and multi-layout views.
 - Deeper news and sentiment integrations.
 
-## Portfolio Notes
-
-- Screenshot exports live in `docs/screenshots/`.
-- Use 1400x800 or larger for crisp portfolio presentation.
-
 ---
 
-If you want help swapping screenshots or writing a short case study section, just say the word.
