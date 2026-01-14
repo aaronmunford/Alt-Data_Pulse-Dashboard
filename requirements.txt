@@ -4,6 +4,8 @@ google-cloud-bigquery
 pandas
 db-dtypes
 deweydatapy
+wrds
+pyarrow
 
 # Analysis
 numpy

@@ -53,6 +53,12 @@ FIELD_ALIASES = {
     "fiscal_year": ["TR.FiscalYear", "Fiscal Year", "Year"],
 }
 
+# Circuit Breaker: Stop trying if we fail too many times
+_consecutive_failures: int = 0
+_circuit_break_until: Optional[datetime] = None
+MAX_CONSECUTIVE_FAILURES = 3
+CIRCUIT_BREAK_DURATION = 300  # 5 minutes break after max failures
+
 
 class LSEGConsensusClient:
     """Fetches LSEG consensus data with caching and fallback behavior."""
@@ -81,10 +87,27 @@ class LSEGConsensusClient:
         # Treat anything older than 24h as too stale to trust.
         self.stale_threshold = timedelta(hours=24)
 
+    def _should_attempt_connection(self) -> bool:
+        """Check if we should attempt LSEG connection (circuit breaker)."""
+        global _circuit_break_until
+
+        if _circuit_break_until:
+            if datetime.now(timezone.utc) < _circuit_break_until:
+                self.last_error = "Circuit breaker active - LSEG connection suspended"
+                return False
+            else:
+                _circuit_break_until = None
+        return True
+
     def connect(self, retries: int = 3, backoff_seconds: int = 1) -> bool:
-        """Try to open a session to LSEG Workspace with retry + backoff."""
+        """Try to open a session to LSEG Workspace with retry + backoff + circuit breaker."""
+        global _consecutive_failures, _circuit_break_until
+
         if rd is None:
             self.last_error = "refinitiv-data is not installed"
+            return False
+
+        if not self._should_attempt_connection():
             return False
 
         for attempt in range(retries):
@@ -93,11 +116,21 @@ class LSEGConsensusClient:
                     rd.open_session(app_key=self.app_key)
                 else:
                     rd.open_session()
+                
+                # Success
                 self._session_open = True
+                _consecutive_failures = 0
                 return True
             except Exception as exc:
                 self.last_error = str(exc)
                 time.sleep(backoff_seconds * (2**attempt))
+        
+        # All retries failed
+        _consecutive_failures += 1
+        if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            _circuit_break_until = datetime.now(timezone.utc) + timedelta(seconds=CIRCUIT_BREAK_DURATION)
+            print(f"LSEG Consensus: Circuit breaker tripped. Pausing for {CIRCUIT_BREAK_DURATION}s.")
+            
         return False
 
     def disconnect(self) -> None:

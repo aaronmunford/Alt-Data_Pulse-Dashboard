@@ -78,18 +78,28 @@ def create_news_item(headline: Dict, index: int = 0) -> html.Div:
     Returns:
         Dash HTML component for a single news item
     """
-    # Format the timestamp
-    time_display = format_news_timestamp(headline.get("timestamp"))
+    # Format the timestamp - show source as fallback if no timestamp
+    timestamp = headline.get("timestamp")
+    time_display = format_news_timestamp(timestamp)
+    
+    # If timestamp is empty/missing, show the source instead
+    if time_display == "--:--" or not timestamp:
+        source = headline.get("source", "")
+        if source and source != "Unknown":
+            time_display = source[:8]  # Truncate long source names
+        else:
+            time_display = "•"
 
     # Get headline text and translation status
     headline_text = headline.get("headline", "")
     is_translated = headline.get("is_translated", False)
     story_id = headline.get("story_id", str(index))
+    source = headline.get("source", "")
 
     # Build the item content
     item_content = [
-        # Timestamp
-        html.Span(time_display, className="news-time"),
+        # Timestamp with source tooltip
+        html.Span(time_display, className="news-time", title=f"Source: {source}" if source else None),
         # Headline text
         html.Span(headline_text, className="news-text"),
     ]
@@ -97,7 +107,7 @@ def create_news_item(headline: Dict, index: int = 0) -> html.Div:
     # Add translated indicator if applicable
     if is_translated:
         item_content.append(
-            html.Span(" [Translated]", className="news-translated-tag")
+            html.Span(" [TR]", className="news-translated-tag", title="Translated")
         )
 
     # Wrap in clickable div with pattern-matching ID

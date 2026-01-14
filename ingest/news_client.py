@@ -38,6 +38,12 @@ _last_connection_attempt: Optional[datetime] = None
 _last_connection_success: bool = False
 CONNECTION_THROTTLE_SECONDS = 30  # Wait 30s between failed connection attempts
 
+# Circuit Breaker: Stop trying if we fail too many times
+_consecutive_failures: int = 0
+_circuit_break_until: Optional[datetime] = None
+MAX_CONSECUTIVE_FAILURES = 3
+CIRCUIT_BREAK_DURATION = 300  # 5 minutes break after max failures
+
 
 class LSEGNewsClient:
     """Fetches LSEG news headlines with caching and fallback behavior."""
@@ -68,8 +74,17 @@ class LSEGNewsClient:
         self.stale_threshold = timedelta(hours=6)
 
     def _should_attempt_connection(self) -> bool:
-        """Check if we should attempt LSEG connection (throttle failed attempts)."""
-        global _last_connection_attempt, _last_connection_success
+        """Check if we should attempt LSEG connection (throttle + circuit breaker)."""
+        global _last_connection_attempt, _last_connection_success, _circuit_break_until
+
+        # Check circuit breaker
+        if _circuit_break_until:
+            if datetime.now(timezone.utc) < _circuit_break_until:
+                self.last_error = "Circuit breaker active - LSEG connection suspended"
+                return False
+            else:
+                # Reset circuit breaker after duration expires
+                _circuit_break_until = None
 
         # Always allow if last attempt succeeded
         if _last_connection_success:
@@ -84,16 +99,18 @@ class LSEGNewsClient:
         return elapsed >= CONNECTION_THROTTLE_SECONDS
 
     def connect(self, retries: int = 1, backoff_seconds: int = 1) -> bool:
-        """Try to open a session to LSEG Workspace with retry + backoff."""
+        """Try to open a session to LSEG Workspace with retry + backoff + circuit breaker."""
         global _last_connection_attempt, _last_connection_success
+        global _consecutive_failures, _circuit_break_until
 
         if rd is None:
             self.last_error = "refinitiv-data is not installed"
             return False
 
-        # Check throttle
+        # Check throttle/circuit breaker
         if not self._should_attempt_connection():
-            self.last_error = "Connection throttled - waiting before retry"
+            if not self.last_error:
+                self.last_error = "Connection throttled or circuit broken"
             return False
 
         _last_connection_attempt = datetime.now(timezone.utc)
@@ -104,15 +121,28 @@ class LSEGNewsClient:
                     rd.open_session(app_key=self.app_key)
                 else:
                     rd.open_session()
+                
+                # Success! Reset counters
                 self._session_open = True
                 _last_connection_success = True
+                _consecutive_failures = 0
+                _circuit_break_until = None
                 return True
+                
             except Exception as exc:
                 self.last_error = str(exc)
                 if attempt < retries - 1:
                     time.sleep(backoff_seconds * (2**attempt))
-
+        
+        # All retries failed
         _last_connection_success = False
+        _consecutive_failures += 1
+        
+        # Trip circuit breaker if too many failures
+        if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            _circuit_break_until = datetime.now(timezone.utc) + timedelta(seconds=CIRCUIT_BREAK_DURATION)
+            print(f"LSEG Connection: Circuit breaker tripped. Pausing for {CIRCUIT_BREAK_DURATION}s.")
+            
         return False
 
     def disconnect(self) -> None:
