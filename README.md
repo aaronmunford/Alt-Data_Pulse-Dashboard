@@ -40,15 +40,16 @@ Traditional earnings models lag reality. Alt-Data Pulse focuses on real-world be
 ## Tech Stack
 
 - Python, Pandas, NumPy, SciPy, Statsmodels
-- Streamlit UI with Altair charts
-- Optional Plotly components for richer interactions
+- Plotly Dash with TradingView-style interactivity
+- Streamlit (legacy UI with Altair charts)
 - Google Cloud Storage + BigQuery loaders
 
 ## Architecture
 
 ```
 alt-data-pulse/
-├── dashboard/            # Streamlit UI
+├── dash_app/             # Plotly Dash UI (primary)
+├── dashboard/            # Streamlit UI (legacy)
 ├── ingest/               # Data pipelines + predictor
 ├── data/                 # Cleaned CSVs + cached outputs
 ├── notebooks/            # Analysis + experimentation
@@ -61,7 +62,12 @@ alt-data-pulse/
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run dashboard/app.py
+
+# Plotly Dash dashboard (recommended)
+python dash_app/app.py    # runs on http://127.0.0.1:8050
+
+# Or Streamlit dashboard (legacy)
+streamlit run dashboard/app.py    # runs on http://localhost:8501
 ```
 
 ## Data Pipeline
