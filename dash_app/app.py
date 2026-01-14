@@ -14,6 +14,7 @@ from datetime import datetime
 from utils import (
     load_brand_signal,
     load_brand_trend_data,
+    load_brand_hiring_data,
     load_brand_news,
     load_story_content,
     get_available_brands,
@@ -24,7 +25,13 @@ from utils import (
 )
 
 # Import chart builders
-from charts import create_traffic_chart, create_ticket_chart, create_combined_chart
+from charts import (
+    create_traffic_chart,
+    create_ticket_chart,
+    create_combined_chart,
+    create_app_engagement_chart,
+    create_hiring_chart,
+)
 
 # Import news feed component
 from components.news_feed import (
@@ -418,6 +425,62 @@ app.layout = dbc.Container(
             ],
             style={"marginBottom": "2rem"},
         ),
+        # App Engagement Chart Section
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                dcc.Graph(
+                                    id="app-engagement-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "modeBarButtonsToRemove": [
+                                            "select2d",
+                                            "lasso2d",
+                                        ],
+                                    },
+                                )
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=12,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # Hiring Trends Chart Section
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                dcc.Graph(
+                                    id="hiring-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "modeBarButtonsToRemove": [
+                                            "select2d",
+                                            "lasso2d",
+                                        ],
+                                    },
+                                )
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=12,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
         # Combined Chart + News Panel Section
         dbc.Row(
             [
@@ -789,6 +852,8 @@ def _calculate_combined_kpis(df: pd.DataFrame, signal: dict) -> dict:
         Output("kpi-signal", "children"),
         Output("traffic-chart", "figure"),
         Output("ticket-chart", "figure"),
+        Output("app-engagement-chart", "figure"),
+        Output("hiring-chart", "figure"),
         Output("combined-chart", "figure"),
         # Inline chart KPIs
         Output("traffic-current-value", "children"),
@@ -827,9 +892,11 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
             empty_kpi,
             empty_kpi,
             empty_kpi,
-            empty_fig,
-            empty_fig,
-            empty_fig,
+            empty_fig,  # traffic
+            empty_fig,  # ticket
+            empty_fig,  # app-engagement
+            empty_fig,  # hiring
+            empty_fig,  # combined
             # Inline KPIs
             empty_inline, empty_inline, empty_inline,  # traffic
             empty_inline, empty_inline, empty_inline,  # ticket
@@ -928,9 +995,14 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
     # Load trend data
     trend_df = load_brand_trend_data(brand)
 
+    # Load hiring data
+    hiring_df = load_brand_hiring_data(brand)
+
     # Create charts
     traffic_fig = create_traffic_chart(trend_df, date_range)
     ticket_fig = create_ticket_chart(trend_df, date_range)
+    app_engagement_fig = create_app_engagement_chart(trend_df, date_range)
+    hiring_fig = create_hiring_chart(hiring_df, date_range)
     combined_fig = create_combined_chart(trend_df, date_range)
 
     # Calculate inline KPIs for charts
@@ -969,6 +1041,8 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
         kpi_signal,
         traffic_fig,
         ticket_fig,
+        app_engagement_fig,
+        hiring_fig,
         combined_fig,
         # Traffic KPIs
         traffic_kpis["current_value"],
@@ -1182,10 +1256,18 @@ def open_story_modal(n_clicks_list, news_data, is_open):
     # Fetch the full story content
     story_content = load_story_content(story_id)
 
-    if story_content:
+    if story_content and len(story_content.strip()) > 50:
         content_text = story_content
     else:
-        content_text = "Full story content is not available. This may be due to LSEG connection issues or the story is no longer accessible."
+        # Build a more helpful unavailable message
+        content_text = (
+            "Full story content is not available for this headline.\n\n"
+            "This can happen when:\n"
+            "• The story is a social media post or external link\n"
+            "• The LSEG connection is not active\n"
+            "• The story content has expired\n\n"
+            "You can search for more details using the headline above."
+        )
 
     # Build meta info
     meta_text = f"{source} • {time_display}"
@@ -1210,6 +1292,7 @@ if __name__ == "__main__":
     print("  • Interactive Plotly time series charts")
     print("  • Real-time data from RevenuePredictor")
     print("  • Live news feed from LSEG/Refinitiv (brand-filtered)")
+    print("  • Hiring trends (Revelio Labs via WRDS)")
     print("  • Auto-refresh (1, 5, 15 min or off)")
     print("  • CSV export with date filtering")
     print("  • Brand selector (STARBUCKS, MCDONALD'S, CHIPOTLE)")

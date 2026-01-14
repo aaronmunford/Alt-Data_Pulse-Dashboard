@@ -387,6 +387,293 @@ def create_combined_chart(
     return fig
 
 
+def create_app_engagement_chart(
+    df: pd.DataFrame, date_range: str = "Last Year"
+) -> go.Figure:
+    """
+    Create App Engagement chart with DAU and Installs on dual y-axes.
+    
+    Args:
+        df: DataFrame with columns: date, dau, installs (optional)
+        date_range: Filter for date range
+    
+    Returns:
+        Plotly Figure with app engagement data
+    """
+    if df.empty:
+        return _create_empty_chart("No app engagement data available")
+
+    # Check for required columns
+    has_dau = 'dau' in df.columns
+    has_installs = 'installs' in df.columns
+    
+    if not has_dau and not has_installs:
+        return _create_empty_chart("No DAU or installs data available")
+
+    df_filtered = _filter_by_date_range(df, date_range)
+
+    if df_filtered.empty:
+        return _create_empty_chart("No data in selected range")
+
+    # Create figure with secondary y-axis if both metrics available
+    if has_dau and has_installs:
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+    else:
+        fig = go.Figure()
+
+    df_filtered = df_filtered.copy()
+
+    # DAU (primary - left y-axis)
+    if has_dau:
+        # Calculate 7-day rolling average
+        df_filtered['dau_7d_avg'] = df_filtered['dau'].rolling(7, min_periods=1).mean()
+        
+        # Calculate DAU index for easier comparison (mean = 100)
+        mean_dau = df_filtered['dau_7d_avg'].mean()
+        if mean_dau > 0:
+            df_filtered['dau_index'] = (df_filtered['dau_7d_avg'] / mean_dau) * 100
+        else:
+            df_filtered['dau_index'] = 0
+        
+        fig.add_trace(
+            go.Scatter(
+                x=df_filtered["date"],
+                y=df_filtered["dau_index"],
+                mode="lines",
+                line=dict(color=COLORS["orange"], width=2.5),
+                name="DAU Index",
+                hovertemplate="<b>%{x|%b %d, %Y}</b><br>"
+                + "DAU Index: %{y:.1f}<br>"
+                + "<extra></extra>",
+            ),
+            secondary_y=False if has_installs else None,
+        )
+
+    # Installs (secondary - right y-axis)
+    if has_installs:
+        df_filtered['installs_7d_avg'] = df_filtered['installs'].rolling(7, min_periods=1).mean()
+        
+        fig.add_trace(
+            go.Scatter(
+                x=df_filtered["date"],
+                y=df_filtered["installs_7d_avg"],
+                mode="lines",
+                line=dict(color=COLORS["yellow"], width=2),
+                name="Installs (7d avg)",
+                hovertemplate="<b>%{x|%b %d, %Y}</b><br>"
+                + "Installs: %{y:,.0f}<br>"
+                + "<extra></extra>",
+            ),
+            secondary_y=True if has_dau else None,
+        )
+
+    # Update axes
+    if has_dau and has_installs:
+        fig.update_xaxes(
+            title_text="Date",
+            showgrid=True,
+            gridcolor=COLORS["grid"],
+            color=COLORS["text"],
+            tickformat="%b %Y",
+        )
+        fig.update_yaxes(
+            title_text="DAU Index (Mean=100)",
+            secondary_y=False,
+            showgrid=True,
+            gridcolor=COLORS["grid"],
+            color=COLORS["orange"],
+        )
+        fig.update_yaxes(
+            title_text="Daily Installs",
+            secondary_y=True,
+            showgrid=False,
+            color=COLORS["yellow"],
+        )
+    else:
+        fig.update_xaxes(
+            title_text="Date",
+            showgrid=True,
+            gridcolor=COLORS["grid"],
+            color=COLORS["text"],
+            tickformat="%b %Y",
+        )
+        fig.update_yaxes(
+            title_text="DAU Index" if has_dau else "Daily Installs",
+            showgrid=True,
+            gridcolor=COLORS["grid"],
+            color=COLORS["orange"] if has_dau else COLORS["yellow"],
+        )
+
+    # Update layout
+    fig.update_layout(
+        title={
+            "text": "📱 App Engagement (Similarweb)",
+            "font": {"family": "Space Grotesk", "size": 16, "color": COLORS["text"]},
+            "x": 0,
+        },
+        plot_bgcolor=COLORS["bg_primary"],
+        paper_bgcolor=COLORS["bg_primary"],
+        font=dict(family="IBM Plex Mono", size=12, color=COLORS["text"]),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=60, r=60, t=80, b=60),
+        height=350,
+    )
+
+    return fig
+
+
+def create_hiring_chart(
+    df: pd.DataFrame, date_range: str = "Last Year"
+) -> go.Figure:
+    """
+    Create Hiring Trends chart with Headcount and Hiring Velocity on dual y-axes.
+
+    Args:
+        df: DataFrame with columns: date, headcount, hiring_velocity, inflows, net_hiring
+        date_range: Filter for date range
+
+    Returns:
+        Plotly Figure with hiring data
+    """
+    if df.empty:
+        return _create_empty_chart("No hiring data available")
+
+    # Check for required columns
+    has_headcount = 'headcount' in df.columns
+    has_velocity = 'hiring_velocity' in df.columns
+    has_inflows = 'inflows' in df.columns
+
+    if not has_headcount and not has_velocity and not has_inflows:
+        return _create_empty_chart("No hiring metrics available")
+
+    df_filtered = _filter_by_date_range(df, date_range)
+
+    if df_filtered.empty:
+        return _create_empty_chart("No data in selected range")
+
+    # Create figure with secondary y-axis
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    df_filtered = df_filtered.copy()
+
+    # Headcount (primary - left y-axis, bar chart)
+    if has_headcount and df_filtered['headcount'].sum() > 0:
+        fig.add_trace(
+            go.Bar(
+                x=df_filtered["date"],
+                y=df_filtered["headcount"],
+                name="Headcount",
+                marker_color=COLORS["blue"],
+                opacity=0.6,
+                hovertemplate="<b>%{x|%b %Y}</b><br>"
+                + "Headcount: %{y:,.0f}<br>"
+                + "<extra></extra>",
+            ),
+            secondary_y=False,
+        )
+
+    # Hiring Velocity (secondary - right y-axis, line)
+    if has_velocity:
+        fig.add_trace(
+            go.Scatter(
+                x=df_filtered["date"],
+                y=df_filtered["hiring_velocity"],
+                mode="lines+markers",
+                line=dict(color=COLORS["green"], width=2.5),
+                marker=dict(size=6, color=COLORS["green"]),
+                name="Hiring Velocity (%)",
+                hovertemplate="<b>%{x|%b %Y}</b><br>"
+                + "Hiring Velocity: %{y:+.1f}%<br>"
+                + "<extra></extra>",
+            ),
+            secondary_y=True,
+        )
+
+    # Net Hiring (additional line on right y-axis)
+    if 'net_hiring' in df_filtered.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df_filtered["date"],
+                y=df_filtered["net_hiring"],
+                mode="lines",
+                line=dict(color=COLORS["yellow"], width=2, dash="dot"),
+                name="Net Hiring",
+                hovertemplate="<b>%{x|%b %Y}</b><br>"
+                + "Net Hiring: %{y:+,.0f}<br>"
+                + "<extra></extra>",
+            ),
+            secondary_y=True,
+        )
+
+    # Update axes
+    fig.update_xaxes(
+        title_text="Date",
+        showgrid=True,
+        gridcolor=COLORS["grid"],
+        color=COLORS["text"],
+        tickformat="%b %Y",
+    )
+
+    if has_headcount and df_filtered['headcount'].sum() > 0:
+        fig.update_yaxes(
+            title_text="Headcount",
+            secondary_y=False,
+            showgrid=True,
+            gridcolor=COLORS["grid"],
+            color=COLORS["blue"],
+            tickformat=",",
+        )
+    else:
+        fig.update_yaxes(
+            title_text="",
+            secondary_y=False,
+            showgrid=True,
+            gridcolor=COLORS["grid"],
+        )
+
+    fig.update_yaxes(
+        title_text="Hiring Velocity (MoM %)",
+        secondary_y=True,
+        showgrid=False,
+        color=COLORS["green"],
+        ticksuffix="%",
+    )
+
+    # Update layout
+    fig.update_layout(
+        title={
+            "text": "Hiring Trends (Revelio Labs)",
+            "font": {"family": "Space Grotesk", "size": 16, "color": COLORS["text"]},
+            "x": 0,
+        },
+        plot_bgcolor=COLORS["bg_primary"],
+        paper_bgcolor=COLORS["bg_primary"],
+        font=dict(family="IBM Plex Mono", size=12, color=COLORS["text"]),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=60, r=60, t=80, b=60),
+        height=350,
+        barmode="overlay",
+    )
+
+    return fig
+
+
 def _filter_by_date_range(df: pd.DataFrame, date_range: str) -> pd.DataFrame:
     """Filter DataFrame by date range string."""
     if df.empty:

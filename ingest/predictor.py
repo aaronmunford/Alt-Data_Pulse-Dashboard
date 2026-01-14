@@ -50,17 +50,25 @@ class RevenuePredictor:
         spend_path="data/clean_spend_daily.csv",
         traffic_path="data/clean_traffic_daily.csv",
         retail_sales_path="data/market_data_retail_sales.csv",
+        app_path="data/clean_app_daily.csv",
+        hiring_path="data/clean_hiring_monthly.csv",
     ):
         base_dir = Path(__file__).resolve().parents[1]
         spend_path = Path(spend_path)
         traffic_path = Path(traffic_path)
         retail_sales_path = Path(retail_sales_path)
+        app_path = Path(app_path)
+        hiring_path = Path(hiring_path)
         if not spend_path.is_absolute():
             spend_path = base_dir / spend_path
         if not traffic_path.is_absolute():
             traffic_path = base_dir / traffic_path
         if not retail_sales_path.is_absolute():
             retail_sales_path = base_dir / retail_sales_path
+        if not app_path.is_absolute():
+            app_path = base_dir / app_path
+        if not hiring_path.is_absolute():
+            hiring_path = base_dir / hiring_path
 
         # 1. Load Spend Data
         self.spend_df = pd.read_csv(spend_path)
@@ -90,6 +98,28 @@ class RevenuePredictor:
             print("Warning: retail sales data not found. Running without macro feature.")
             self.has_retail = False
             self.retail_df = pd.DataFrame()
+
+        # 4. Load App Engagement Data (Similarweb via Dewey)
+        try:
+            self.app_df = pd.read_csv(app_path)
+            self.app_df['date'] = pd.to_datetime(self.app_df['date'])
+            self.has_app_data = True
+            print(f"Loaded app engagement data: {len(self.app_df):,} rows")
+        except Exception:
+            print("Warning: app data not found. Running without app engagement features.")
+            self.has_app_data = False
+            self.app_df = pd.DataFrame()
+
+        # 5. Load Hiring Data (Revelio Labs via WRDS or WageScape via Dewey)
+        try:
+            self.hiring_df = pd.read_csv(hiring_path)
+            self.hiring_df['date'] = pd.to_datetime(self.hiring_df['date'])
+            self.has_hiring = True
+            print(f"Loaded hiring data: {len(self.hiring_df):,} rows")
+        except Exception:
+            print("Warning: hiring data not found. Running without hiring features.")
+            self.has_hiring = False
+            self.hiring_df = pd.DataFrame()
 
         self.models = {}
         self.correlations = {}
@@ -170,7 +200,82 @@ class RevenuePredictor:
             return None
 
         return float(retail_subset['retail_yoy'].mean())
-    
+
+    def _get_quarterly_hiring_metrics(self, quarter: str, brand: str) -> Optional[Dict]:
+        """Get hiring metrics for a fiscal quarter.
+
+        Returns dict with keys: headcount, inflows, hiring_velocity, attrition_rate
+        """
+        if not self.has_hiring or self.hiring_df.empty:
+            return None
+
+        try:
+            year, q_label = quarter.split('_')
+            year = int(year)
+            q_num = int(q_label[1])
+        except Exception:
+            return None
+
+        # Map fiscal quarter to calendar months
+        if brand == "STARBUCKS":
+            # Starbucks fiscal: Q1=Oct-Dec, Q2=Jan-Mar, Q3=Apr-Jun, Q4=Jul-Sep
+            fiscal_to_months = {
+                1: [(year - 1, 10), (year - 1, 11), (year - 1, 12)],
+                2: [(year, 1), (year, 2), (year, 3)],
+                3: [(year, 4), (year, 5), (year, 6)],
+                4: [(year, 7), (year, 8), (year, 9)],
+            }
+        else:
+            # Standard calendar quarters
+            fiscal_to_months = {
+                1: [(year, 1), (year, 2), (year, 3)],
+                2: [(year, 4), (year, 5), (year, 6)],
+                3: [(year, 7), (year, 8), (year, 9)],
+                4: [(year, 10), (year, 11), (year, 12)],
+            }
+
+        months = fiscal_to_months.get(q_num, [])
+        if not months:
+            return None
+
+        # Filter hiring data to brand
+        brand_hiring = self.hiring_df[self.hiring_df['brand'] == brand].copy()
+        if brand_hiring.empty:
+            return None
+
+        # Filter to months in this quarter
+        hiring_subset = brand_hiring[
+            brand_hiring['date'].apply(lambda d: (d.year, d.month) in months)
+        ]
+
+        if hiring_subset.empty:
+            return None
+
+        # Aggregate metrics for the quarter
+        result = {}
+
+        # Average headcount across the quarter
+        if 'headcount' in hiring_subset.columns:
+            result['headcount'] = float(hiring_subset['headcount'].mean())
+
+        # Sum of inflows (new hires) during the quarter
+        if 'inflows' in hiring_subset.columns:
+            result['inflows'] = float(hiring_subset['inflows'].sum())
+
+        # Average hiring velocity (MoM % change in hiring)
+        if 'hiring_velocity' in hiring_subset.columns:
+            result['hiring_velocity'] = float(hiring_subset['hiring_velocity'].mean())
+
+        # Average attrition rate
+        if 'attrition_rate' in hiring_subset.columns:
+            result['attrition_rate'] = float(hiring_subset['attrition_rate'].mean())
+
+        # Net hiring for the quarter
+        if 'net_hiring' in hiring_subset.columns:
+            result['net_hiring'] = float(hiring_subset['net_hiring'].sum())
+
+        return result if result else None
+
     def get_merged_data(self, brand: str) -> pd.DataFrame:
         # Filter Spend
         spend_vars = [b for b in self.spend_df['brand'].unique() if self._normalize_brand(b) == brand]
@@ -184,18 +289,39 @@ class RevenuePredictor:
             'transactions': 'sum'
         }).reset_index()
         
+        merged = df_spend
+        
         # Merge Traffic (if available)
         if self.has_traffic:
             traffic_vars = [b for b in self.traffic_df['brand'].unique() if self._normalize_brand(b) == brand]
             df_traffic = self.traffic_df[self.traffic_df['brand'].isin(traffic_vars)].copy()
             
             if not df_traffic.empty:
-                df_traffic = df_traffic.groupby('date').agg({'total_visits': 'sum' }).reset_index()
-                # INNER JOIN: We only want days where we have BOTH signals
-                merged = pd.merge(df_spend, df_traffic, on='date', how='inner')
-                return merged
-
-        return df_spend # return spend data if no traffic data is available
+                df_traffic = df_traffic.groupby('date').agg({'total_visits': 'sum'}).reset_index()
+                # LEFT JOIN: Keep all spend days, add traffic where available
+                merged = pd.merge(merged, df_traffic, on='date', how='left')
+        
+        # Merge App Engagement Data (if available)
+        if self.has_app_data:
+            app_vars = [b for b in self.app_df['brand'].unique() if self._normalize_brand(b) == brand]
+            df_app = self.app_df[self.app_df['brand'].isin(app_vars)].copy()
+            
+            if not df_app.empty:
+                # Select key app metrics
+                app_cols = ['date']
+                if 'dau' in df_app.columns:
+                    app_cols.append('dau')
+                if 'installs' in df_app.columns:
+                    app_cols.append('installs')
+                
+                df_app = df_app.groupby('date').agg({
+                    col: 'sum' for col in app_cols if col != 'date'
+                }).reset_index()
+                
+                # LEFT JOIN: Keep all spend days, add app data where available
+                merged = pd.merge(merged, df_app, on='date', how='left')
+        
+        return merged
 
     def aggregate_quarterly(self, brand: str) -> pd.DataFrame:
         df = self.get_merged_data(brand)
@@ -249,6 +375,15 @@ class RevenuePredictor:
                 retail_yoy = self._get_quarterly_retail_yoy(q, brand)
                 if retail_yoy is not None:
                     record['retail_yoy'] = retail_yoy
+
+                # Add hiring metrics if available for this quarter.
+                hiring_metrics = self._get_quarterly_hiring_metrics(q, brand)
+                if hiring_metrics:
+                    if 'hiring_velocity' in hiring_metrics:
+                        record['hiring_velocity'] = hiring_metrics['hiring_velocity']
+                    if 'headcount' in hiring_metrics:
+                        record['headcount'] = hiring_metrics['headcount']
+
                 train_data.append(record)
 
         if len(train_data) < 3:
@@ -263,11 +398,23 @@ class RevenuePredictor:
         # Only include a feature if ALL records have valid (non-NaN) values.
         has_valid_visits = 'visits' in df.columns and df['visits'].notna().all()
         has_valid_retail = 'retail_yoy' in df.columns and df['retail_yoy'].notna().all()
+        has_valid_hiring = 'hiring_velocity' in df.columns and df['hiring_velocity'].notna().all()
 
-        if has_valid_visits and has_valid_retail:
+        # Build feature list based on availability
+        # Priority: spend + visits + hiring_velocity + retail_yoy (best)
+        # Fallback progressively if features are missing
+        if has_valid_visits and has_valid_retail and has_valid_hiring:
+            features = ['spend', 'visits', 'hiring_velocity', 'retail_yoy']
+        elif has_valid_visits and has_valid_hiring:
+            features = ['spend', 'visits', 'hiring_velocity']
+        elif has_valid_visits and has_valid_retail:
             features = ['spend', 'visits', 'retail_yoy']
         elif has_valid_visits:
             features = ['spend', 'visits']
+        elif has_valid_retail and has_valid_hiring:
+            features = ['spend', 'transactions', 'hiring_velocity', 'retail_yoy']
+        elif has_valid_hiring:
+            features = ['spend', 'transactions', 'hiring_velocity']
         elif has_valid_retail:
             features = ['spend', 'transactions', 'retail_yoy']
         else:
@@ -303,16 +450,25 @@ class RevenuePredictor:
             'transactions': 'transactions_sum',
             'visits': 'total_visits_sum',
             'retail_yoy': 'retail_yoy',
+            'hiring_velocity': 'hiring_velocity',
         }
 
         features = self.models[brand]['features']
+        current_q = current_q.copy()
+
         # Inject retail YoY if the model expects it.
         if 'retail_yoy' in features:
             retail_yoy = self._get_quarterly_retail_yoy(quarter, brand)
             if retail_yoy is None:
                 return {'error': f'Missing retail_yoy data for {quarter}'}
-            current_q = current_q.copy()
             current_q['retail_yoy'] = retail_yoy
+
+        # Inject hiring velocity if the model expects it.
+        if 'hiring_velocity' in features:
+            hiring_metrics = self._get_quarterly_hiring_metrics(quarter, brand)
+            if hiring_metrics is None or 'hiring_velocity' not in hiring_metrics:
+                return {'error': f'Missing hiring data for {quarter}'}
+            current_q['hiring_velocity'] = hiring_metrics['hiring_velocity']
 
         actual_cols = [feature_map.get(f, f) for f in features]
 
@@ -405,6 +561,21 @@ class RevenuePredictor:
             df['visits_7d_avg'] = df['total_visits'].rolling(7).mean()
 
         return df
+
+    def get_hiring_trend_data(self, brand: str) -> pd.DataFrame:
+        """Get hiring trend data for a brand.
+
+        Returns monthly hiring metrics: headcount, inflows, hiring_velocity, etc.
+        """
+        if not self.has_hiring or self.hiring_df.empty:
+            return pd.DataFrame()
+
+        brand_hiring = self.hiring_df[self.hiring_df['brand'] == brand].copy()
+        if brand_hiring.empty:
+            return pd.DataFrame()
+
+        brand_hiring = brand_hiring.sort_values('date')
+        return brand_hiring
 
     def _fallback_consensus_estimate(self, brand: str, quarter: str, predicted: float) -> Tuple[float, str]:
         """
