@@ -279,15 +279,63 @@ app.layout = dbc.Container(
                     [
                         html.Div(
                             [
+                                # Header with KPIs
+                                html.Div(
+                                    [
+                                        # Left: Title and current value
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    "Foot Traffic Index",
+                                                    style={
+                                                        "fontSize": "0.875rem",
+                                                        "fontWeight": "600",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                                html.Span(
+                                                    id="traffic-current-value",
+                                                    style={
+                                                        "fontSize": "1.25rem",
+                                                        "fontWeight": "700",
+                                                        "color": "#58a6ff",
+                                                        "marginLeft": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "baseline"},
+                                        ),
+                                        # Right: KPIs
+                                        html.Div(
+                                            [
+                                                html.Div(id="traffic-kpi-30d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="traffic-kpi-90d", style={"display": "inline-block"}),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
                                 dcc.Graph(
                                     id="traffic-chart",
                                     config={
                                         "displayModeBar": True,
                                         "displaylogo": False,
+                                        "scrollZoom": True,
                                         "modeBarButtonsToRemove": [
                                             "select2d",
                                             "lasso2d",
+                                            "autoScale2d",
                                         ],
+                                        "doubleClick": "reset",
                                     },
                                 )
                             ],
@@ -301,15 +349,63 @@ app.layout = dbc.Container(
                     [
                         html.Div(
                             [
+                                # Header with KPIs
+                                html.Div(
+                                    [
+                                        # Left: Title and current value
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    "Average Ticket Size",
+                                                    style={
+                                                        "fontSize": "0.875rem",
+                                                        "fontWeight": "600",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                                html.Span(
+                                                    id="ticket-current-value",
+                                                    style={
+                                                        "fontSize": "1.25rem",
+                                                        "fontWeight": "700",
+                                                        "color": "#3fb950",
+                                                        "marginLeft": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "baseline"},
+                                        ),
+                                        # Right: KPIs
+                                        html.Div(
+                                            [
+                                                html.Div(id="ticket-kpi-30d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="ticket-kpi-90d", style={"display": "inline-block"}),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
                                 dcc.Graph(
                                     id="ticket-chart",
                                     config={
                                         "displayModeBar": True,
                                         "displaylogo": False,
+                                        "scrollZoom": True,
                                         "modeBarButtonsToRemove": [
                                             "select2d",
                                             "lasso2d",
+                                            "autoScale2d",
                                         ],
+                                        "doubleClick": "reset",
                                     },
                                 )
                             ],
@@ -330,15 +426,49 @@ app.layout = dbc.Container(
                     [
                         html.Div(
                             [
+                                # Header with KPIs
+                                html.Div(
+                                    [
+                                        # Left: Title
+                                        html.Span(
+                                            "Alt-Data Signals: Traffic x Ticket Size",
+                                            style={
+                                                "fontSize": "0.875rem",
+                                                "fontWeight": "600",
+                                                "color": "#e6edf3",
+                                                "fontFamily": "'Space Grotesk', sans-serif",
+                                            },
+                                        ),
+                                        # Right: Signal KPIs
+                                        html.Div(
+                                            [
+                                                html.Div(id="combined-kpi-correlation", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="combined-kpi-trend", style={"display": "inline-block"}),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
                                 dcc.Graph(
                                     id="combined-chart",
                                     config={
                                         "displayModeBar": True,
                                         "displaylogo": False,
+                                        "scrollZoom": True,
                                         "modeBarButtonsToRemove": [
                                             "select2d",
                                             "lasso2d",
+                                            "autoScale2d",
                                         ],
+                                        "doubleClick": "reset",
                                     },
                                 )
                             ],
@@ -492,6 +622,162 @@ app.layout = dbc.Container(
 )
 
 # ============================================================================
+# KPI Helper Functions
+# ============================================================================
+
+
+def _calculate_chart_kpis(df: pd.DataFrame, column: str, chart_type: str) -> dict:
+    """
+    Calculate inline KPIs for a chart (current value, 30d change, 90d change).
+
+    Args:
+        df: DataFrame with trend data
+        column: Column name to calculate KPIs for
+        chart_type: 'traffic' or 'ticket' for formatting
+
+    Returns:
+        Dict with current_value, change_30d, change_90d as HTML elements
+    """
+    from datetime import timedelta
+
+    if df.empty or column not in df.columns:
+        return {
+            "current_value": "—",
+            "change_30d": "",
+            "change_90d": "",
+        }
+
+    df = df.copy()
+    if "date" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["date"]):
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    df = df.dropna(subset=[column, "date"])
+    if df.empty:
+        return {"current_value": "—", "change_30d": "", "change_90d": ""}
+
+    df = df.sort_values("date")
+    latest_date = df["date"].max()
+    latest_value = df[df["date"] == latest_date][column].iloc[0]
+
+    # Format current value
+    if chart_type == "ticket":
+        current_str = f"${latest_value:.2f}"
+    else:
+        current_str = f"{latest_value:,.0f}"
+
+    # Calculate 30d change
+    date_30d = latest_date - timedelta(days=30)
+    df_30d = df[df["date"] <= date_30d]
+    if not df_30d.empty:
+        value_30d = df_30d.iloc[-1][column]
+        change_30d = ((latest_value - value_30d) / value_30d * 100) if value_30d != 0 else 0
+        change_30d_color = "#3fb950" if change_30d >= 0 else "#f85149"
+        change_30d_arrow = "▲" if change_30d >= 0 else "▼"
+        change_30d_el = html.Div(
+            [
+                html.Span(
+                    f"{change_30d_arrow} {abs(change_30d):.1f}%",
+                    style={"color": change_30d_color, "fontWeight": "700", "fontSize": "0.8rem"},
+                ),
+                html.Div("30d", style={"color": "#8b949e", "fontSize": "0.65rem"}),
+            ],
+            style={"textAlign": "center"},
+        )
+    else:
+        change_30d_el = ""
+
+    # Calculate 90d change
+    date_90d = latest_date - timedelta(days=90)
+    df_90d = df[df["date"] <= date_90d]
+    if not df_90d.empty:
+        value_90d = df_90d.iloc[-1][column]
+        change_90d = ((latest_value - value_90d) / value_90d * 100) if value_90d != 0 else 0
+        change_90d_color = "#3fb950" if change_90d >= 0 else "#f85149"
+        change_90d_arrow = "▲" if change_90d >= 0 else "▼"
+        change_90d_el = html.Div(
+            [
+                html.Span(
+                    f"{change_90d_arrow} {abs(change_90d):.1f}%",
+                    style={"color": change_90d_color, "fontWeight": "700", "fontSize": "0.8rem"},
+                ),
+                html.Div("90d", style={"color": "#8b949e", "fontSize": "0.65rem"}),
+            ],
+            style={"textAlign": "center"},
+        )
+    else:
+        change_90d_el = ""
+
+    return {
+        "current_value": current_str,
+        "change_30d": change_30d_el,
+        "change_90d": change_90d_el,
+    }
+
+
+def _calculate_combined_kpis(df: pd.DataFrame, signal: dict) -> dict:
+    """
+    Calculate KPIs for the combined chart (correlation strength, trend).
+
+    Args:
+        df: DataFrame with trend data
+        signal: Signal dictionary with correlation info
+
+    Returns:
+        Dict with correlation and trend as HTML elements
+    """
+    # Correlation from signal
+    correlation = signal.get("correlation", 0)
+    if correlation >= 0.8:
+        corr_color = "#3fb950"
+        corr_label = "Strong"
+    elif correlation >= 0.5:
+        corr_color = "#d29922"
+        corr_label = "Moderate"
+    else:
+        corr_color = "#f85149"
+        corr_label = "Weak"
+
+    corr_el = html.Div(
+        [
+            html.Span(
+                f"R² {correlation:.2f}",
+                style={"color": corr_color, "fontWeight": "700", "fontSize": "0.8rem"},
+            ),
+            html.Div(corr_label, style={"color": "#8b949e", "fontSize": "0.65rem"}),
+        ],
+        style={"textAlign": "center"},
+    )
+
+    # Trend direction from delta
+    delta_pct = signal.get("delta_pct", 0)
+    if delta_pct > 2:
+        trend_color = "#3fb950"
+        trend_text = "▲ Bullish"
+    elif delta_pct < -2:
+        trend_color = "#f85149"
+        trend_text = "▼ Bearish"
+    else:
+        trend_color = "#8b949e"
+        trend_text = "— Neutral"
+
+    trend_el = html.Div(
+        [
+            html.Span(
+                trend_text,
+                style={"color": trend_color, "fontWeight": "700", "fontSize": "0.8rem"},
+            ),
+            html.Div("Signal", style={"color": "#8b949e", "fontSize": "0.65rem"}),
+        ],
+        style={"textAlign": "center"},
+    )
+
+    return {
+        "correlation": corr_el,
+        "trend": trend_el,
+    }
+
+
+# ============================================================================
 # Callbacks
 # ============================================================================
 
@@ -504,6 +790,16 @@ app.layout = dbc.Container(
         Output("traffic-chart", "figure"),
         Output("ticket-chart", "figure"),
         Output("combined-chart", "figure"),
+        # Inline chart KPIs
+        Output("traffic-current-value", "children"),
+        Output("traffic-kpi-30d", "children"),
+        Output("traffic-kpi-90d", "children"),
+        Output("ticket-current-value", "children"),
+        Output("ticket-kpi-30d", "children"),
+        Output("ticket-kpi-90d", "children"),
+        Output("combined-kpi-correlation", "children"),
+        Output("combined-kpi-trend", "children"),
+        # Debug outputs
         Output("raw-signal-data", "children"),
         Output("trend-data-preview", "children"),
     ],
@@ -525,6 +821,7 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
         error_msg = f"Error loading data for {brand}:\n{signal['error']}"
         empty_kpi = html.Div("—", className="kpi-card")
         empty_fig = create_traffic_chart(pd.DataFrame())
+        empty_inline = ""
         return (
             empty_kpi,
             empty_kpi,
@@ -533,6 +830,10 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
             empty_fig,
             empty_fig,
             empty_fig,
+            # Inline KPIs
+            empty_inline, empty_inline, empty_inline,  # traffic
+            empty_inline, empty_inline, empty_inline,  # ticket
+            empty_inline, empty_inline,  # combined
             error_msg,
             "No trend data available",
         )
@@ -632,6 +933,11 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
     ticket_fig = create_ticket_chart(trend_df, date_range)
     combined_fig = create_combined_chart(trend_df, date_range)
 
+    # Calculate inline KPIs for charts
+    traffic_kpis = _calculate_chart_kpis(trend_df, "visits_7d_avg", "traffic")
+    ticket_kpis = _calculate_chart_kpis(trend_df, "avg_ticket_size", "ticket")
+    combined_kpis = _calculate_combined_kpis(trend_df, signal)
+
     if trend_df.empty:
         trend_preview_text = "No trend data available"
     else:
@@ -664,6 +970,18 @@ def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
         traffic_fig,
         ticket_fig,
         combined_fig,
+        # Traffic KPIs
+        traffic_kpis["current_value"],
+        traffic_kpis["change_30d"],
+        traffic_kpis["change_90d"],
+        # Ticket KPIs
+        ticket_kpis["current_value"],
+        ticket_kpis["change_30d"],
+        ticket_kpis["change_90d"],
+        # Combined KPIs
+        combined_kpis["correlation"],
+        combined_kpis["trend"],
+        # Debug
         raw_signal_text,
         trend_preview_text,
     )

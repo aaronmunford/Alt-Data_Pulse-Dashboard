@@ -1,6 +1,6 @@
 """
 Chart Building Utilities for Dash Dashboard
-Bloomberg Terminal Style Plotly Charts
+Bloomberg Terminal Style Plotly Charts with TradingView Interactivity
 """
 
 import plotly.graph_objects as go
@@ -21,6 +21,74 @@ COLORS = {
     "yellow": "#d29922",
     "orange": "#db6d28",
 }
+
+# TradingView-style range selector buttons
+RANGE_SELECTOR_BUTTONS = [
+    dict(count=1, label="1M", step="month", stepmode="backward"),
+    dict(count=3, label="3M", step="month", stepmode="backward"),
+    dict(count=6, label="6M", step="month", stepmode="backward"),
+    dict(count=1, label="1Y", step="year", stepmode="backward"),
+    dict(step="all", label="All"),
+]
+
+
+def _apply_tradingview_features(fig: go.Figure, height: int = 350) -> go.Figure:
+    """
+    Apply TradingView-style interactive features to a Plotly figure.
+
+    Features:
+    - Drag to pan (not zoom)
+    - Crosshair cursor with spike lines
+    - Range selector buttons (1M, 3M, 6M, 1Y, All)
+    - Scroll wheel zoom enabled via config
+
+    Args:
+        fig: Plotly figure to modify
+        height: Chart height
+
+    Returns:
+        Modified Plotly figure
+    """
+    # Update x-axis with range selector and crosshair spikes
+    fig.update_xaxes(
+        rangeselector=dict(
+            buttons=RANGE_SELECTOR_BUTTONS,
+            bgcolor=COLORS["bg_secondary"],
+            activecolor=COLORS["blue"],
+            bordercolor=COLORS["grid"],
+            borderwidth=1,
+            font=dict(color=COLORS["text"], size=10),
+            x=0,
+            y=1.0,
+            yanchor="bottom",
+        ),
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+        spikecolor=COLORS["text_muted"],
+        spikedash="solid",
+    )
+
+    # Y-axis crosshair spike
+    fig.update_yaxes(
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+        spikecolor=COLORS["text_muted"],
+        spikedash="solid",
+    )
+
+    # Layout updates for TradingView behavior
+    fig.update_layout(
+        height=height,
+        dragmode="pan",  # Drag to pan, not zoom
+        hovermode="x unified",
+        spikedistance=-1,  # Show spikes at all distances
+    )
+
+    return fig
 
 
 def create_traffic_chart(df: pd.DataFrame, date_range: str = "Last Year") -> go.Figure:
@@ -75,19 +143,15 @@ def create_traffic_chart(df: pd.DataFrame, date_range: str = "Last Year") -> go.
 
     # Apply Bloomberg theme
     fig.update_layout(
-        title={
-            "text": "Foot Traffic Index (7-Day Average)",
-            "font": {"family": "Space Grotesk", "size": 16, "color": COLORS["text"]},
-            "x": 0,
-        },
         xaxis=dict(
-            title="Date",
+            title="",
             showgrid=True,
             gridcolor=COLORS["grid"],
             gridwidth=1,
             color=COLORS["text"],
             tickformat="%b %Y",
-            tickangle=-45,
+            showline=True,
+            linecolor=COLORS["grid"],
         ),
         yaxis=dict(
             title="Index (Mean = 100)",
@@ -99,11 +163,13 @@ def create_traffic_chart(df: pd.DataFrame, date_range: str = "Last Year") -> go.
         ),
         plot_bgcolor=COLORS["bg_primary"],
         paper_bgcolor=COLORS["bg_primary"],
-        font=dict(family="IBM Plex Mono", size=12, color=COLORS["text"]),
-        hovermode="x unified",
-        margin=dict(l=60, r=40, t=60, b=60),
-        height=350,
+        font=dict(family="IBM Plex Mono", size=11, color=COLORS["text"]),
+        margin=dict(l=50, r=20, t=30, b=40),
+        showlegend=False,
     )
+
+    # Apply TradingView interactive features
+    _apply_tradingview_features(fig, height=300)
 
     return fig
 
@@ -155,19 +221,15 @@ def create_ticket_chart(df: pd.DataFrame, date_range: str = "Last Year") -> go.F
 
     # Apply Bloomberg theme
     fig.update_layout(
-        title={
-            "text": "Average Ticket Size (Consumer Edge)",
-            "font": {"family": "Space Grotesk", "size": 16, "color": COLORS["text"]},
-            "x": 0,
-        },
         xaxis=dict(
-            title="Date",
+            title="",
             showgrid=True,
             gridcolor=COLORS["grid"],
             gridwidth=1,
             color=COLORS["text"],
             tickformat="%b %Y",
-            tickangle=-45,
+            showline=True,
+            linecolor=COLORS["grid"],
         ),
         yaxis=dict(
             title="Average Ticket ($)",
@@ -180,11 +242,13 @@ def create_ticket_chart(df: pd.DataFrame, date_range: str = "Last Year") -> go.F
         ),
         plot_bgcolor=COLORS["bg_primary"],
         paper_bgcolor=COLORS["bg_primary"],
-        font=dict(family="IBM Plex Mono", size=12, color=COLORS["text"]),
-        hovermode="x unified",
-        margin=dict(l=60, r=40, t=60, b=60),
-        height=350,
+        font=dict(family="IBM Plex Mono", size=11, color=COLORS["text"]),
+        margin=dict(l=60, r=20, t=30, b=40),
+        showlegend=False,
     )
+
+    # Apply TradingView interactive features
+    _apply_tradingview_features(fig, height=300)
 
     return fig
 
@@ -250,13 +314,32 @@ def create_combined_chart(
             secondary_y=True,
         )
 
-    # Update axes
+    # Update axes with TradingView crosshair
     fig.update_xaxes(
-        title_text="Date",
+        title_text="",
         showgrid=True,
         gridcolor=COLORS["grid"],
         color=COLORS["text"],
         tickformat="%b %Y",
+        showline=True,
+        linecolor=COLORS["grid"],
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+        spikecolor=COLORS["text_muted"],
+        spikedash="solid",
+        rangeselector=dict(
+            buttons=RANGE_SELECTOR_BUTTONS,
+            bgcolor=COLORS["bg_secondary"],
+            activecolor=COLORS["blue"],
+            bordercolor=COLORS["grid"],
+            borderwidth=1,
+            font=dict(color=COLORS["text"], size=10),
+            x=0,
+            y=1.0,
+            yanchor="bottom",
+        ),
     )
 
     fig.update_yaxes(
@@ -265,6 +348,12 @@ def create_combined_chart(
         showgrid=True,
         gridcolor=COLORS["grid"],
         color=COLORS["green"],
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+        spikecolor=COLORS["text_muted"],
+        spikedash="solid",
     )
 
     fig.update_yaxes(
@@ -275,17 +364,14 @@ def create_combined_chart(
         tickprefix="$",
     )
 
-    # Update layout
+    # Update layout with TradingView features
     fig.update_layout(
-        title={
-            "text": "Alt-Data Signals: Traffic × Ticket Size",
-            "font": {"family": "Space Grotesk", "size": 16, "color": COLORS["text"]},
-            "x": 0,
-        },
         plot_bgcolor=COLORS["bg_primary"],
         paper_bgcolor=COLORS["bg_primary"],
-        font=dict(family="IBM Plex Mono", size=12, color=COLORS["text"]),
+        font=dict(family="IBM Plex Mono", size=11, color=COLORS["text"]),
         hovermode="x unified",
+        spikedistance=-1,
+        dragmode="pan",
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -294,8 +380,8 @@ def create_combined_chart(
             x=1,
             bgcolor="rgba(0,0,0,0)",
         ),
-        margin=dict(l=60, r=60, t=80, b=60),
-        height=400,
+        margin=dict(l=50, r=50, t=50, b=40),
+        height=350,
     )
 
     return fig
