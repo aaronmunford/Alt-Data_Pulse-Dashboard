@@ -3,9 +3,13 @@
 .DS_Store
 __pycache__/
 *.log
+.venv/
 
 # Local data artifacts (often licensed/proprietary)
 data/raw/
 data/*.csv
 data/*.csv.gz
+data/consensus_cache.json
+data/news_cache.json
 temp_download/
+CLAUDE.md

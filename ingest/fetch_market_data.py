@@ -49,8 +49,9 @@ print("Saved stock prices to data/market_data_stocks.csv")
 
 # 2. Fetch Macro data (US Retail Sales - Food Services)
 # Symbol: RSFSXMV (Retail Sales: Food Services and Drinking places)
+# Pull extra history so YoY is available for 2023 quarters.
 print("Fetching US Retail Sales data")
-start = datetime.datetime(2023, 1, 1)
+start = datetime.datetime(2018, 1, 1)
 end = datetime.date.today()
 retail_sales = web.DataReader("RSFSXMV", "fred", start, end) # fred: federal reserve economic data
 

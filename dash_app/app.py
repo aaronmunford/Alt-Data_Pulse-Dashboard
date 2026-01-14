@@ -1,0 +1,1880 @@
+"""
+Alt-Data Pulse Dashboard - Plotly Dash Version
+Phase 2H: Production-Ready Bloomberg-Style Dashboard
+"""
+
+import dash
+from dash import html, dcc, callback, Input, Output, State, ALL, ctx
+import dash_bootstrap_components as dbc
+import pandas as pd
+import json
+from datetime import datetime
+
+# Import data utilities
+from utils import (
+    load_brand_signal,
+    load_brand_trend_data,
+    load_brand_hiring_data,
+    load_brand_news,
+    load_story_content,
+    get_available_brands,
+    format_currency,
+    format_delta,
+    get_delta_color,
+    get_signal_color,
+    calculate_hiring_kpis,
+    format_hiring_number,
+    format_pct_change,
+)
+
+# Import chart builders
+from charts import (
+    create_traffic_chart,
+    create_ticket_chart,
+    create_combined_chart,
+    create_app_engagement_chart,
+    create_hiring_chart,
+    create_job_openings_donut,
+    create_employee_count_chart,
+    create_hiring_flow_chart,
+    create_hiring_velocity_chart,
+)
+
+# Import news feed component
+from components.news_feed import (
+    create_news_feed_panel,
+    create_news_unavailable_message,
+    create_story_modal,
+)
+
+# Initialize Dash app with external stylesheets
+app = dash.Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
+    suppress_callback_exceptions=True,
+    title="Alt-Data Pulse Dashboard",
+)
+
+# Server for deployment
+server = app.server
+
+# ============================================================================
+# Layout
+# ============================================================================
+
+app.layout = dbc.Container(
+    [
+        # Auto-refresh interval component (5 minutes)
+        dcc.Interval(
+            id="interval-component",
+            interval=5 * 60 * 1000,  # 5 minutes in milliseconds
+            n_intervals=0,
+        ),
+        # Store component for manual refresh trigger
+        dcc.Store(id="refresh-trigger", data=0),
+        # Download component for CSV export
+        dcc.Download(id="download-dataframe-csv"),
+        # News-specific interval (faster refresh - 2 minutes)
+        dcc.Interval(
+            id="news-interval-component",
+            interval=2 * 60 * 1000,  # 2 minutes in milliseconds
+            n_intervals=0,
+        ),
+        # Store for news data
+        dcc.Store(id="news-data-store", data=[]),
+        # Story modal for displaying full news articles
+        create_story_modal(),
+        # Fullscreen chart modal
+        dbc.Modal(
+            [
+                dbc.ModalHeader(
+                    dbc.ModalTitle(id="fullscreen-modal-title"),
+                    close_button=True,
+                    style={"backgroundColor": "#0a0e27", "borderBottom": "1px solid #30363d"},
+                ),
+                dbc.ModalBody(
+                    dcc.Graph(
+                        id="fullscreen-chart",
+                        config={
+                            "displayModeBar": True,
+                            "displaylogo": False,
+                            "scrollZoom": True,
+                            "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
+                            "doubleClick": "reset",
+                        },
+                        style={"height": "70vh"},
+                    ),
+                    style={"backgroundColor": "#0a0e27", "padding": "0"},
+                ),
+            ],
+            id="fullscreen-modal",
+            size="xl",
+            is_open=False,
+            centered=True,
+            style={"maxWidth": "95vw"},
+        ),
+        # Store for tracking which chart to show fullscreen
+        dcc.Store(id="fullscreen-chart-store", data=None),
+        # Header Section
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.H1(
+                            "Alt-Data Pulse Dashboard",
+                            style={
+                                "fontFamily": "'Space Grotesk', sans-serif",
+                                "fontWeight": "600",
+                                "marginTop": "2rem",
+                                "marginBottom": "0.5rem",
+                            },
+                        ),
+                        html.P(
+                            "Hedge Fund Grade Quantitative Signal Platform",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "0.875rem",
+                                "color": "#8b949e",
+                                "marginBottom": "0rem",
+                            },
+                        ),
+                        html.Div(
+                            id="last-updated-display",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "0.75rem",
+                                "color": "#6e7681",
+                                "marginBottom": "1rem",
+                            },
+                        ),
+                    ],
+                    md=9,
+                ),
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                dbc.Row(
+                                    [
+                                        dbc.Col(
+                                            dbc.Button(
+                                                "↻ Refresh",
+                                                id="refresh-button",
+                                                color="secondary",
+                                                size="sm",
+                                                style={
+                                                    "marginTop": "2rem",
+                                                    "marginBottom": "0.5rem",
+                                                    "width": "100%",
+                                                },
+                                            ),
+                                            width=6,
+                                        ),
+                                        dbc.Col(
+                                            dbc.Button(
+                                                "⬇ Export CSV",
+                                                id="export-csv-button",
+                                                color="primary",
+                                                size="sm",
+                                                style={
+                                                    "marginTop": "2rem",
+                                                    "marginBottom": "0.5rem",
+                                                    "width": "100%",
+                                                },
+                                            ),
+                                            width=6,
+                                        ),
+                                    ]
+                                ),
+                                dcc.Dropdown(
+                                    id="refresh-interval-selector",
+                                    options=[
+                                        {"label": "Auto-refresh: Off", "value": 0},
+                                        {"label": "Auto-refresh: 1 min", "value": 1},
+                                        {"label": "Auto-refresh: 5 min", "value": 5},
+                                        {"label": "Auto-refresh: 15 min", "value": 15},
+                                    ],
+                                    value=5,  # Default 5 minutes
+                                    clearable=False,
+                                    style={
+                                        "fontSize": "0.75rem",
+                                    },
+                                ),
+                            ]
+                        )
+                    ],
+                    md=3,
+                ),
+            ]
+        ),
+        # Controls Row: Brand Selector + Date Range
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Label(
+                            "Select Brand:",
+                            style={
+                                "fontFamily": "'Space Grotesk', sans-serif",
+                                "fontSize": "0.875rem",
+                                "fontWeight": "600",
+                                "marginBottom": "0.5rem",
+                                "display": "block",
+                            },
+                        ),
+                        dcc.Dropdown(
+                            id="brand-selector",
+                            options=[
+                                {"label": brand, "value": brand}
+                                for brand in get_available_brands()
+                            ],
+                            value="STARBUCKS",  # Default selection
+                            clearable=False,
+                            style={
+                                "backgroundColor": "#161b33",
+                                "color": "#e6edf3",
+                            },
+                        ),
+                    ],
+                    md=4,
+                ),
+                dbc.Col(
+                    [
+                        html.Label(
+                            "Time Range:",
+                            style={
+                                "fontFamily": "'Space Grotesk', sans-serif",
+                                "fontSize": "0.875rem",
+                                "fontWeight": "600",
+                                "marginBottom": "0.5rem",
+                                "display": "block",
+                            },
+                        ),
+                        dcc.Dropdown(
+                            id="date-range-selector",
+                            options=[
+                                {"label": "Last 90 Days", "value": "Last 90 Days"},
+                                {"label": "Last 6 Months", "value": "Last 6 Months"},
+                                {"label": "Last Year", "value": "Last Year"},
+                                {"label": "All Available", "value": "All Available"},
+                            ],
+                            value="Last Year",  # Default selection
+                            clearable=False,
+                            style={
+                                "backgroundColor": "#161b33",
+                                "color": "#e6edf3",
+                            },
+                        ),
+                    ],
+                    md=4,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # Status Badge
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            "🚀 Production-Ready Dashboard (Phase 2H Complete)",
+                            style={
+                                "backgroundColor": "#1a1f3a",
+                                "border": "1px solid #3fb950",
+                                "borderRadius": "6px",
+                                "padding": "0.75rem 1.25rem",
+                                "fontSize": "0.875rem",
+                                "color": "#3fb950",
+                                "fontWeight": "600",
+                                "marginBottom": "2rem",
+                                "display": "inline-block",
+                            },
+                        )
+                    ],
+                    width=12,
+                )
+            ]
+        ),
+        # KPI Cards Row (Dynamic)
+        dbc.Row(
+            [
+                dbc.Col(
+                    html.Div(id="kpi-revenue-proxy"),
+                    md=3,
+                ),
+                dbc.Col(
+                    html.Div(id="kpi-consensus"),
+                    md=3,
+                ),
+                dbc.Col(
+                    html.Div(id="kpi-delta"),
+                    md=3,
+                ),
+                dbc.Col(
+                    html.Div(id="kpi-signal"),
+                    md=3,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # Charts Section
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                # Header with KPIs and fullscreen button
+                                html.Div(
+                                    [
+                                        # Left: Title and current value
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    "Foot Traffic Index",
+                                                    style={
+                                                        "fontSize": "0.875rem",
+                                                        "fontWeight": "600",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                                html.Span(
+                                                    id="traffic-current-value",
+                                                    style={
+                                                        "fontSize": "1.25rem",
+                                                        "fontWeight": "700",
+                                                        "color": "#58a6ff",
+                                                        "marginLeft": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "baseline"},
+                                        ),
+                                        # Right: KPIs + fullscreen button
+                                        html.Div(
+                                            [
+                                                html.Div(id="traffic-kpi-30d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="traffic-kpi-90d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-traffic",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                        "borderRadius": "4px",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="traffic-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": [
+                                            "select2d",
+                                            "lasso2d",
+                                            "autoScale2d",
+                                        ],
+                                        "doubleClick": "reset",  # TradingView: double-click resets view
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=6,
+                ),
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                # Header with KPIs and fullscreen button
+                                html.Div(
+                                    [
+                                        # Left: Title and current value
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    "Average Ticket Size",
+                                                    style={
+                                                        "fontSize": "0.875rem",
+                                                        "fontWeight": "600",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                                html.Span(
+                                                    id="ticket-current-value",
+                                                    style={
+                                                        "fontSize": "1.25rem",
+                                                        "fontWeight": "700",
+                                                        "color": "#3fb950",
+                                                        "marginLeft": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "baseline"},
+                                        ),
+                                        # Right: KPIs + fullscreen button
+                                        html.Div(
+                                            [
+                                                html.Div(id="ticket-kpi-30d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="ticket-kpi-90d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-ticket",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                        "borderRadius": "4px",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="ticket-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": [
+                                            "select2d",
+                                            "lasso2d",
+                                            "autoScale2d",
+                                        ],
+                                        "doubleClick": "reset",
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=6,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # App Engagement Chart Section
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                # Header with KPIs and fullscreen button
+                                html.Div(
+                                    [
+                                        # Left: Title and current value
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    "App Engagement (Similarweb)",
+                                                    style={
+                                                        "fontSize": "0.875rem",
+                                                        "fontWeight": "600",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                                html.Span(
+                                                    id="app-current-value",
+                                                    style={
+                                                        "fontSize": "1.25rem",
+                                                        "fontWeight": "700",
+                                                        "color": "#d29922",
+                                                        "marginLeft": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "baseline"},
+                                        ),
+                                        # Right: KPIs + fullscreen button
+                                        html.Div(
+                                            [
+                                                html.Div(id="app-kpi-30d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="app-kpi-90d", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-app-engagement",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                        "borderRadius": "4px",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="app-engagement-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": [
+                                            "select2d",
+                                            "lasso2d",
+                                            "autoScale2d",
+                                        ],
+                                        "doubleClick": "reset",
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=12,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # ============================================================================
+        # Hiring Dashboard Section (LinkedIn Style)
+        # ============================================================================
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.H3(
+                            "Hiring Insights",
+                            style={
+                                "fontFamily": "'Space Grotesk', sans-serif",
+                                "fontWeight": "600",
+                                "marginBottom": "0.5rem",
+                                "color": "#e6edf3",
+                            },
+                        ),
+                        html.P(
+                            "Job posting activity and hiring trends (LinkUp Data)",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "0.75rem",
+                                "color": "#8b949e",
+                                "marginBottom": "1rem",
+                            },
+                        ),
+                    ],
+                    width=12,
+                )
+            ]
+        ),
+        # Row 1: Total Job Postings (with integrated KPIs) + Job Activity Donut
+        dbc.Row(
+            [
+                # Total Job Postings Panel (LinkedIn style - KPIs above chart)
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                # Header with KPIs inline
+                                html.Div(
+                                    [
+                                        # Left: Main metric
+                                        html.Div(
+                                            [
+                                                html.Div(
+                                                    id="hiring-total-count",
+                                                    style={
+                                                        "fontSize": "1.75rem",
+                                                        "fontWeight": "700",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                                html.Div(
+                                                    "active job postings",
+                                                    style={
+                                                        "fontSize": "0.75rem",
+                                                        "color": "#8b949e",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"flex": "1"},
+                                        ),
+                                        # Right: Growth metrics + fullscreen button
+                                        html.Div(
+                                            [
+                                                html.Div(id="hiring-kpi-6m-inline", style={"display": "inline-block", "marginRight": "1.5rem"}),
+                                                html.Div(id="hiring-kpi-1y-inline", style={"display": "inline-block", "marginRight": "1.5rem"}),
+                                                html.Div(id="hiring-kpi-2y-inline", style={"display": "inline-block", "marginRight": "1.5rem"}),
+                                                html.Div(id="hiring-kpi-trend-inline", style={"display": "inline-block", "marginRight": "1.5rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-employee-count",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1.25rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                        "borderRadius": "4px",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "flex-start"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "flex-start",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
+                                # Chart
+                                dcc.Graph(
+                                    id="employee-count-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
+                                        "doubleClick": "reset",
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=8,
+                ),
+                # Job Activity Donut
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    "Latest Month Activity",
+                                    style={
+                                        "fontSize": "0.875rem",
+                                        "fontWeight": "600",
+                                        "color": "#e6edf3",
+                                        "marginBottom": "0.5rem",
+                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="job-openings-donut",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "zoom2d", "pan2d"],
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=4,
+                ),
+            ],
+            style={"marginBottom": "1.5rem"},
+        ),
+        # Row 2: Hiring Flow + Velocity (with integrated headers)
+        dbc.Row(
+            [
+                # Hiring Flow Chart
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Hiring trends",
+                                            style={
+                                                "fontSize": "0.875rem",
+                                                "fontWeight": "600",
+                                                "color": "#e6edf3",
+                                                "fontFamily": "'Space Grotesk', sans-serif",
+                                            },
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Div(id="hiring-flow-inflows", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="hiring-flow-outflows", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-hiring-flow",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="hiring-flow-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
+                                        "doubleClick": "reset",
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=6,
+                ),
+                # Hiring Velocity Chart
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.Span(
+                                            "Hiring velocity",
+                                            style={
+                                                "fontSize": "0.875rem",
+                                                "fontWeight": "600",
+                                                "color": "#e6edf3",
+                                                "fontFamily": "'Space Grotesk', sans-serif",
+                                            },
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.Div(id="hiring-velocity-avg", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-hiring-velocity",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="hiring-velocity-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
+                                        "doubleClick": "reset",
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=6,
+                ),
+            ],
+            style={"marginBottom": "1.5rem"},
+        ),
+        # Function-Level Breakdown (Placeholder for WRDS data)
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.H5(
+                                            "Employee Distribution by Function",
+                                            style={
+                                                "fontFamily": "'Space Grotesk', sans-serif",
+                                                "color": "#e6edf3",
+                                                "marginBottom": "1rem",
+                                            },
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.P(
+                                                    "Awaiting WRDS/Revelio Labs access",
+                                                    style={
+                                                        "color": "#8b949e",
+                                                        "fontSize": "0.875rem",
+                                                        "marginBottom": "0.5rem",
+                                                    },
+                                                ),
+                                                html.P(
+                                                    "Function-level breakdown (Engineering, Sales, Operations, etc.) "
+                                                    "will be available once WRDS verification is complete.",
+                                                    style={
+                                                        "color": "#6e7681",
+                                                        "fontSize": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={
+                                                "backgroundColor": "#161b33",
+                                                "border": "1px dashed #30363d",
+                                                "borderRadius": "6px",
+                                                "padding": "2rem",
+                                                "textAlign": "center",
+                                            },
+                                        ),
+                                    ],
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=6,
+                ),
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.H5(
+                                            "Headcount Growth by Function",
+                                            style={
+                                                "fontFamily": "'Space Grotesk', sans-serif",
+                                                "color": "#e6edf3",
+                                                "marginBottom": "1rem",
+                                            },
+                                        ),
+                                        html.Div(
+                                            [
+                                                html.P(
+                                                    "Awaiting WRDS/Revelio Labs access",
+                                                    style={
+                                                        "color": "#8b949e",
+                                                        "fontSize": "0.875rem",
+                                                        "marginBottom": "0.5rem",
+                                                    },
+                                                ),
+                                                html.P(
+                                                    "Growth rates by function will show which departments "
+                                                    "are expanding or contracting.",
+                                                    style={
+                                                        "color": "#6e7681",
+                                                        "fontSize": "0.75rem",
+                                                    },
+                                                ),
+                                            ],
+                                            style={
+                                                "backgroundColor": "#161b33",
+                                                "border": "1px dashed #30363d",
+                                                "borderRadius": "6px",
+                                                "padding": "2rem",
+                                                "textAlign": "center",
+                                            },
+                                        ),
+                                    ],
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=6,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # Combined Chart + News Panel Section
+        dbc.Row(
+            [
+                # Combined Chart (9 columns)
+                dbc.Col(
+                    [
+                        html.Div(
+                            [
+                                # Header with KPIs and fullscreen button
+                                html.Div(
+                                    [
+                                        # Left: Title
+                                        html.Div(
+                                            [
+                                                html.Span(
+                                                    "Alt-Data Signals: Traffic x Ticket Size",
+                                                    style={
+                                                        "fontSize": "0.875rem",
+                                                        "fontWeight": "600",
+                                                        "color": "#e6edf3",
+                                                        "fontFamily": "'Space Grotesk', sans-serif",
+                                                    },
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "baseline"},
+                                        ),
+                                        # Right: Signal KPIs + fullscreen button
+                                        html.Div(
+                                            [
+                                                html.Div(id="combined-kpi-correlation", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Div(id="combined-kpi-signal", style={"display": "inline-block", "marginRight": "1rem"}),
+                                                html.Span(
+                                                    "⛶",
+                                                    id="fullscreen-btn-combined",
+                                                    n_clicks=0,
+                                                    style={
+                                                        "cursor": "pointer",
+                                                        "color": "#8b949e",
+                                                        "fontSize": "1rem",
+                                                        "padding": "0.25rem 0.5rem",
+                                                        "borderRadius": "4px",
+                                                    },
+                                                    title="Fullscreen (or double-click chart)",
+                                                    className="fullscreen-btn",
+                                                ),
+                                            ],
+                                            style={"display": "flex", "alignItems": "center"},
+                                        ),
+                                    ],
+                                    style={
+                                        "display": "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems": "center",
+                                        "marginBottom": "0.5rem",
+                                        "paddingBottom": "0.5rem",
+                                        "borderBottom": "1px solid #30363d",
+                                    },
+                                ),
+                                dcc.Graph(
+                                    id="combined-chart",
+                                    config={
+                                        "displayModeBar": True,
+                                        "displaylogo": False,
+                                        "scrollZoom": True,
+                                        "modeBarButtonsToRemove": [
+                                            "select2d",
+                                            "lasso2d",
+                                            "autoScale2d",
+                                        ],
+                                        "doubleClick": "reset",
+                                    },
+                                ),
+                            ],
+                            className="dash-card",
+                            style={"padding": "1rem"},
+                        )
+                    ],
+                    md=9,
+                ),
+                # News Feed Panel (3 columns)
+                dbc.Col(
+                    [
+                        html.Div(
+                            id="news-feed-container",
+                            children=create_news_unavailable_message(),
+                        )
+                    ],
+                    md=3,
+                ),
+            ],
+            style={"marginBottom": "2rem"},
+        ),
+        # Debug Section Toggle
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        dbc.Button(
+                            "▼ Show Debug Data",
+                            id="collapse-button",
+                            color="link",
+                            size="sm",
+                            style={
+                                "color": "#8b949e",
+                                "fontSize": "0.875rem",
+                                "marginBottom": "1rem",
+                            },
+                        ),
+                    ],
+                    width=12,
+                )
+            ]
+        ),
+        # Collapsible Debug Sections
+        dbc.Collapse(
+            [
+                # Raw Data Display Section
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H3(
+                                            "Raw Signal Data (Debug Output)",
+                                            className="font-sans",
+                                            style={"marginBottom": "1rem"},
+                                        ),
+                                        html.Pre(
+                                            id="raw-signal-data",
+                                            style={
+                                                "backgroundColor": "#0a0e27",
+                                                "border": "1px solid #30363d",
+                                                "borderRadius": "6px",
+                                                "padding": "1.5rem",
+                                                "fontSize": "0.875rem",
+                                                "color": "#e6edf3",
+                                                "fontFamily": "'IBM Plex Mono', monospace",
+                                                "overflow": "auto",
+                                                "maxHeight": "400px",
+                                            },
+                                        ),
+                                    ],
+                                    className="dash-card",
+                                )
+                            ],
+                            width=12,
+                        )
+                    ]
+                ),
+                # Trend Data Preview
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                html.Div(
+                                    [
+                                        html.H3(
+                                            "Trend Data Preview (First 10 Rows)",
+                                            className="font-sans",
+                                            style={"marginBottom": "1rem"},
+                                        ),
+                                        html.Pre(
+                                            id="trend-data-preview",
+                                            style={
+                                                "backgroundColor": "#0a0e27",
+                                                "border": "1px solid #30363d",
+                                                "borderRadius": "6px",
+                                                "padding": "1.5rem",
+                                                "fontSize": "0.75rem",
+                                                "color": "#8b949e",
+                                                "fontFamily": "'IBM Plex Mono', monospace",
+                                                "overflow": "auto",
+                                                "maxHeight": "500px",
+                                            },
+                                        ),
+                                    ],
+                                    className="dash-card",
+                                )
+                            ],
+                            width=12,
+                        )
+                    ]
+                ),
+            ],
+            id="collapse-debug",
+            is_open=False,
+        ),
+        # Footer
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Hr(style={"borderColor": "#30363d", "margin": "2rem 0"}),
+                        html.P(
+                            [
+                                "Built with ",
+                                html.A(
+                                    "Plotly Dash",
+                                    href="https://dash.plotly.com/",
+                                    target="_blank",
+                                    style={"color": "#58a6ff"},
+                                ),
+                                " • Bloomberg Terminal Style • All Phases Complete",
+                            ],
+                            style={
+                                "fontSize": "0.75rem",
+                                "color": "#6e7681",
+                                "textAlign": "center",
+                                "marginBottom": "2rem",
+                            },
+                        ),
+                    ],
+                    width=12,
+                )
+            ]
+        ),
+    ],
+    fluid=True,
+    style={"maxWidth": "1400px"},
+)
+
+# ============================================================================
+# Callbacks
+# ============================================================================
+
+@callback(
+    [
+        Output("kpi-revenue-proxy", "children"),
+        Output("kpi-consensus", "children"),
+        Output("kpi-delta", "children"),
+        Output("kpi-signal", "children"),
+        Output("traffic-chart", "figure"),
+        Output("ticket-chart", "figure"),
+        Output("app-engagement-chart", "figure"),
+        Output("combined-chart", "figure"),
+        # Hiring Dashboard Outputs (LinkedIn style - inline KPIs)
+        Output("hiring-total-count", "children"),
+        Output("hiring-kpi-6m-inline", "children"),
+        Output("hiring-kpi-1y-inline", "children"),
+        Output("hiring-kpi-2y-inline", "children"),
+        Output("hiring-kpi-trend-inline", "children"),
+        Output("hiring-flow-inflows", "children"),
+        Output("hiring-flow-outflows", "children"),
+        Output("hiring-velocity-avg", "children"),
+        Output("job-openings-donut", "figure"),
+        Output("employee-count-chart", "figure"),
+        Output("hiring-flow-chart", "figure"),
+        Output("hiring-velocity-chart", "figure"),
+        # Debug outputs
+        Output("raw-signal-data", "children"),
+        Output("trend-data-preview", "children"),
+    ],
+    [
+        Input("brand-selector", "value"),
+        Input("date-range-selector", "value"),
+        Input("refresh-trigger", "data"),
+        Input("interval-component", "n_intervals"),
+    ],
+)
+def update_dashboard(brand: str, date_range: str, refresh_trigger, n_intervals):
+    """Update all dashboard components when brand, date range, or refresh triggers change."""
+
+    # Load signal data
+    signal = load_brand_signal(brand)
+
+    # Load hiring data early for KPIs
+    hiring_df = load_brand_hiring_data(brand)
+    hiring_kpis = calculate_hiring_kpis(hiring_df)
+
+    # Create empty hiring outputs for error cases
+    def create_empty_hiring_outputs():
+        empty_text = "—"
+        empty_fig = create_traffic_chart(pd.DataFrame())
+        # 8 inline KPIs + 4 charts = 12 outputs
+        return (empty_text, empty_text, empty_text, empty_text, empty_text, empty_text, empty_text, empty_text, empty_fig, empty_fig, empty_fig, empty_fig)
+
+    # Handle errors
+    if "error" in signal:
+        error_msg = f"Error loading data for {brand}:\n{signal['error']}"
+        empty_kpi = html.Div("—", className="kpi-card")
+        empty_fig = create_traffic_chart(pd.DataFrame())
+        hiring_outputs = create_empty_hiring_outputs()
+        return (
+            empty_kpi,
+            empty_kpi,
+            empty_kpi,
+            empty_kpi,
+            empty_fig,
+            empty_fig,
+            empty_fig,
+            empty_fig,
+            *hiring_outputs,
+            error_msg,
+            "No trend data available",
+        )
+
+    # Build KPI Cards
+    kpi_revenue = html.Div(
+        [
+            html.Div(
+                format_currency(signal["predicted_revenue"]),
+                className="kpi-value",
+                style={"color": "#58a6ff"},
+            ),
+            html.Div("Revenue Proxy", className="kpi-label"),
+            html.Div(
+                signal["quarter"],
+                style={
+                    "fontSize": "0.75rem",
+                    "color": "#6e7681",
+                    "marginTop": "0.5rem",
+                },
+            ),
+        ],
+        className="kpi-card",
+    )
+
+    kpi_consensus = html.Div(
+        [
+            html.Div(
+                format_currency(signal["wall_street_consensus"]),
+                className="kpi-value",
+                style={"color": "#8b949e"},
+            ),
+            html.Div("Wall St. Consensus", className="kpi-label"),
+            html.Div(
+                signal.get("consensus_source", "N/A"),
+                style={
+                    "fontSize": "0.75rem",
+                    "color": "#6e7681",
+                    "marginTop": "0.5rem",
+                },
+            ),
+        ],
+        className="kpi-card",
+    )
+
+    delta_color = get_delta_color(signal["delta_pct"])
+    kpi_delta = html.Div(
+        [
+            html.Div(
+                format_delta(signal["delta_pct"]),
+                className="kpi-value",
+                style={"color": delta_color},
+            ),
+            html.Div("Delta vs Consensus", className="kpi-label"),
+            html.Div(
+                signal["delta_direction"],
+                style={
+                    "fontSize": "0.875rem",
+                    "color": delta_color,
+                    "marginTop": "0.5rem",
+                    "fontWeight": "700",
+                },
+            ),
+        ],
+        className="kpi-card",
+    )
+
+    signal_color = get_signal_color(signal["signal_strength"])
+    kpi_signal = html.Div(
+        [
+            html.Div(
+                f"{signal['correlation']:.3f}",
+                className="kpi-value",
+                style={"color": signal_color},
+            ),
+            html.Div("Signal Strength", className="kpi-label"),
+            html.Div(
+                f"{signal['signal_strength']} (R²)",
+                style={
+                    "fontSize": "0.75rem",
+                    "color": "#6e7681",
+                    "marginTop": "0.5rem",
+                },
+            ),
+        ],
+        className="kpi-card",
+    )
+
+    # Build Hiring KPI Elements (LinkedIn inline style)
+    # Total count (large number)
+    hiring_total_count = format_hiring_number(hiring_kpis["total_job_openings"])
+
+    # 6M Change (inline format with arrow)
+    change_6m = hiring_kpis["job_openings_change_6m"]
+    change_6m_color = "#3fb950" if change_6m >= 0 else "#f85149"
+    change_6m_arrow = "▲" if change_6m >= 0 else "▼"
+    hiring_kpi_6m_inline = html.Div(
+        [
+            html.Span(
+                f"{change_6m_arrow} {abs(change_6m):.0f}%",
+                style={"color": change_6m_color, "fontWeight": "700", "fontSize": "0.875rem"},
+            ),
+            html.Div("6m growth", style={"color": "#8b949e", "fontSize": "0.7rem"}),
+        ],
+        style={"textAlign": "center"},
+    )
+
+    # 1Y Change (inline format with arrow)
+    change_1y = hiring_kpis["job_openings_change_1y"]
+    change_1y_color = "#3fb950" if change_1y >= 0 else "#f85149"
+    change_1y_arrow = "▲" if change_1y >= 0 else "▼"
+    hiring_kpi_1y_inline = html.Div(
+        [
+            html.Span(
+                f"{change_1y_arrow} {abs(change_1y):.0f}%",
+                style={"color": change_1y_color, "fontWeight": "700", "fontSize": "0.875rem"},
+            ),
+            html.Div("1y growth", style={"color": "#8b949e", "fontSize": "0.7rem"}),
+        ],
+        style={"textAlign": "center"},
+    )
+
+    # 2Y Change (inline format with arrow)
+    change_2y = hiring_kpis["employee_change_2y"]
+    if change_2y == 0:
+        # No 2y data available
+        hiring_kpi_2y_inline = html.Div(
+            [
+                html.Span("—", style={"color": "#8b949e", "fontWeight": "700", "fontSize": "0.875rem"}),
+                html.Div("2y growth", style={"color": "#8b949e", "fontSize": "0.7rem"}),
+            ],
+            style={"textAlign": "center"},
+        )
+    else:
+        change_2y_color = "#3fb950" if change_2y >= 0 else "#f85149"
+        change_2y_arrow = "▲" if change_2y >= 0 else "▼"
+        hiring_kpi_2y_inline = html.Div(
+            [
+                html.Span(
+                    f"{change_2y_arrow} {abs(change_2y):.0f}%",
+                    style={"color": change_2y_color, "fontWeight": "700", "fontSize": "0.875rem"},
+                ),
+                html.Div("2y growth", style={"color": "#8b949e", "fontSize": "0.7rem"}),
+            ],
+            style={"textAlign": "center"},
+        )
+
+    # Trend indicator (inline)
+    trend = hiring_kpis["net_hiring_trend"]
+    trend_display = {"increasing": "Expanding", "decreasing": "Contracting", "stable": "Stable", "neutral": "—"}
+    trend_color = {"increasing": "#3fb950", "decreasing": "#f85149", "stable": "#d29922", "neutral": "#8b949e"}
+    trend_arrow = {"increasing": "▲", "decreasing": "▼", "stable": "●", "neutral": "—"}
+    hiring_kpi_trend_inline = html.Div(
+        [
+            html.Span(
+                f"{trend_arrow.get(trend, '—')} {trend_display.get(trend, '—')}",
+                style={"color": trend_color.get(trend, "#8b949e"), "fontWeight": "700", "fontSize": "0.875rem"},
+            ),
+            html.Div("trend", style={"color": "#8b949e", "fontSize": "0.7rem"}),
+        ],
+        style={"textAlign": "center"},
+    )
+
+    # Hiring flow metrics (for flow chart header)
+    latest_inflows = hiring_kpis["latest_inflows"]
+    latest_outflows = hiring_kpis["latest_outflows"]
+    hiring_flow_inflows = html.Span(
+        [
+            html.Span("●", style={"color": "#3fb950", "marginRight": "4px"}),
+            html.Span(f"New: {format_hiring_number(latest_inflows)}", style={"color": "#8b949e", "fontSize": "0.75rem"}),
+        ]
+    )
+    hiring_flow_outflows = html.Span(
+        [
+            html.Span("●", style={"color": "#f85149", "marginRight": "4px"}),
+            html.Span(f"Closed: {format_hiring_number(latest_outflows)}", style={"color": "#8b949e", "fontSize": "0.75rem"}),
+        ]
+    )
+
+    # Velocity average
+    velocity_avg = hiring_kpis["hiring_velocity_avg"]
+    velocity_color = "#3fb950" if velocity_avg >= 0 else "#f85149"
+    hiring_velocity_avg_display = html.Span(
+        f"Avg: {velocity_avg:+.1f}%",
+        style={"color": velocity_color, "fontSize": "0.75rem", "fontWeight": "600"},
+    )
+
+    # Format raw signal data as JSON
+    raw_signal_text = json.dumps(signal, indent=2, default=str)
+
+    # Load trend data
+    trend_df = load_brand_trend_data(brand)
+
+    # Create charts
+    traffic_fig = create_traffic_chart(trend_df, date_range)
+    ticket_fig = create_ticket_chart(trend_df, date_range)
+    app_engagement_fig = create_app_engagement_chart(trend_df, date_range)
+    combined_fig = create_combined_chart(trend_df, date_range)
+
+    # Create hiring charts
+    job_openings_donut_fig = create_job_openings_donut(hiring_df, "Job Posting Activity")
+    employee_count_fig = create_employee_count_chart(hiring_df, date_range)
+    hiring_flow_fig = create_hiring_flow_chart(hiring_df, date_range)
+    hiring_velocity_fig = create_hiring_velocity_chart(hiring_df, date_range)
+
+    if trend_df.empty:
+        trend_preview_text = "No trend data available"
+    else:
+        # Show first 10 rows with key columns
+        cols_to_show = [
+            col
+            for col in [
+                "date",
+                "spend",
+                "transactions",
+                "avg_ticket_size",
+                "spend_7d_avg",
+                "total_visits",
+                "visits_7d_avg",
+            ]
+            if col in trend_df.columns
+        ]
+        preview_df = trend_df[cols_to_show].head(10)
+        trend_preview_text = preview_df.to_string()
+
+        # Add summary stats
+        trend_preview_text += f"\n\nTotal Rows: {len(trend_df)}"
+        trend_preview_text += f"\nDate Range: {trend_df['date'].min()} to {trend_df['date'].max()}"
+
+    return (
+        kpi_revenue,
+        kpi_consensus,
+        kpi_delta,
+        kpi_signal,
+        traffic_fig,
+        ticket_fig,
+        app_engagement_fig,
+        combined_fig,
+        # Hiring inline KPIs (LinkedIn style)
+        hiring_total_count,
+        hiring_kpi_6m_inline,
+        hiring_kpi_1y_inline,
+        hiring_kpi_2y_inline,
+        hiring_kpi_trend_inline,
+        hiring_flow_inflows,
+        hiring_flow_outflows,
+        hiring_velocity_avg_display,
+        # Hiring Charts
+        job_openings_donut_fig,
+        employee_count_fig,
+        hiring_flow_fig,
+        hiring_velocity_fig,
+        # Debug
+        raw_signal_text,
+        trend_preview_text,
+    )
+
+
+@callback(
+    Output("interval-component", "interval"),
+    Input("refresh-interval-selector", "value"),
+)
+def update_refresh_interval(minutes: int):
+    """Update the auto-refresh interval based on user selection."""
+    if minutes == 0:
+        # Disable by setting to a very long interval (~1 year).
+        return 365 * 24 * 60 * 60 * 1000
+    return minutes * 60 * 1000
+
+
+@callback(
+    Output("refresh-trigger", "data"),
+    Input("refresh-button", "n_clicks"),
+    State("refresh-trigger", "data"),
+    prevent_initial_call=True,
+)
+def manual_refresh(n_clicks, current_value):
+    """Increment refresh trigger when button is clicked."""
+    if n_clicks is None:
+        return current_value
+    return current_value + 1
+
+
+@callback(
+    Output("last-updated-display", "children"),
+    [
+        Input("brand-selector", "value"),
+        Input("refresh-trigger", "data"),
+        Input("interval-component", "n_intervals"),
+    ],
+)
+def update_timestamp(brand, refresh_trigger, n_intervals):
+    """Update the last updated timestamp."""
+    now = datetime.now()
+    return f"Last updated: {now.strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+@callback(
+    Output("download-dataframe-csv", "data"),
+    Input("export-csv-button", "n_clicks"),
+    [
+        State("brand-selector", "value"),
+        State("date-range-selector", "value"),
+    ],
+    prevent_initial_call=True,
+)
+def export_csv(n_clicks, brand, date_range):
+    """Export trend data as CSV when button is clicked."""
+    if n_clicks is None:
+        return None
+
+    # Load trend data
+    trend_df = load_brand_trend_data(brand)
+
+    if trend_df.empty:
+        return None
+
+    # Filter by date range
+    from charts import _filter_by_date_range
+
+    trend_df = _filter_by_date_range(trend_df, date_range)
+
+    # Format filename with brand and timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{brand}_{date_range.replace(' ', '_')}_{timestamp}.csv"
+
+    return dcc.send_data_frame(trend_df.to_csv, filename, index=False)
+
+
+@callback(
+    [
+        Output("collapse-debug", "is_open"),
+        Output("collapse-button", "children"),
+    ],
+    Input("collapse-button", "n_clicks"),
+    State("collapse-debug", "is_open"),
+)
+def toggle_collapse(n_clicks, is_open):
+    """Toggle the debug sections collapse."""
+    if n_clicks:
+        is_open = not is_open
+    button_text = "▲ Hide Debug Data" if is_open else "▼ Show Debug Data"
+    return is_open, button_text
+
+
+# ============================================================================
+# News Feed Callback
+# ============================================================================
+
+
+@callback(
+    [
+        Output("news-feed-container", "children"),
+        Output("news-data-store", "data"),
+    ],
+    [
+        Input("brand-selector", "value"),
+        Input("news-interval-component", "n_intervals"),
+        Input("refresh-trigger", "data"),
+    ],
+)
+def update_news_feed(brand: str, n_intervals: int, refresh_trigger):
+    """
+    Update news feed when brand changes or news interval fires.
+
+    Args:
+        brand: Currently selected brand
+        n_intervals: News interval tick count
+        refresh_trigger: Manual refresh trigger
+
+    Returns:
+        Tuple of (news panel component, news data for store)
+    """
+    try:
+        headlines = load_brand_news(brand, count=15)
+
+        if not headlines:
+            return create_news_unavailable_message(), []
+
+        # Check if any headlines are from stale cache
+        any_stale = any(h.get("is_stale", False) for h in headlines)
+
+        return create_news_feed_panel(headlines, show_stale_indicator=any_stale), headlines
+
+    except Exception as e:
+        print(f"Error updating news feed: {e}")
+        return create_news_unavailable_message(), []
+
+
+# ============================================================================
+# Story Modal Callback
+# ============================================================================
+
+
+@callback(
+    [
+        Output("story-modal", "is_open"),
+        Output("story-modal-title", "children"),
+        Output("story-modal-meta", "children"),
+        Output("story-modal-content", "children"),
+    ],
+    [
+        Input({"type": "news-headline", "index": ALL, "story_id": ALL}, "n_clicks"),
+    ],
+    [
+        State("news-data-store", "data"),
+        State("story-modal", "is_open"),
+    ],
+    prevent_initial_call=True,
+)
+def open_story_modal(n_clicks_list, news_data, is_open):
+    """
+    Open story modal when a headline is clicked.
+
+    Args:
+        n_clicks_list: List of click counts for all headlines
+        news_data: Stored news data from the feed
+        is_open: Current modal state
+
+    Returns:
+        Tuple of (is_open, title, meta, content)
+    """
+    # Check if any headline was actually clicked
+    if not any(n_clicks_list):
+        return False, "", "", ""
+
+    # Find which headline was clicked
+    triggered = ctx.triggered_id
+    if not triggered:
+        return False, "", "", ""
+
+    clicked_index = triggered.get("index")
+    story_id = triggered.get("story_id")
+
+    if clicked_index is None or not news_data:
+        return False, "", "", ""
+
+    # Get the headline data
+    if clicked_index >= len(news_data):
+        return False, "", "", ""
+
+    headline_data = news_data[clicked_index]
+    headline_text = headline_data.get("headline", "")
+    source = headline_data.get("source", "Unknown")
+    timestamp = headline_data.get("timestamp", "")
+
+    # Format timestamp for display
+    from utils import format_news_timestamp
+    time_display = format_news_timestamp(timestamp)
+
+    # Fetch the full story content
+    story_content = load_story_content(story_id)
+
+    if story_content and len(story_content.strip()) > 50:
+        content_text = story_content
+    else:
+        # Build a more helpful unavailable message
+        content_text = (
+            "Full story content is not available for this headline.\n\n"
+            "This can happen when:\n"
+            "• The story is a social media post or external link\n"
+            "• The LSEG connection is not active\n"
+            "• The story content has expired\n\n"
+            "You can search for more details using the headline above."
+        )
+
+    # Build meta info
+    meta_text = f"{source} • {time_display}"
+    if headline_data.get("is_translated"):
+        meta_text += " • Translated"
+
+    return True, headline_text, meta_text, content_text
+
+
+# ============================================================================
+# Fullscreen Chart Modal Callback
+# ============================================================================
+
+
+@callback(
+    [
+        Output("fullscreen-modal", "is_open"),
+        Output("fullscreen-modal-title", "children"),
+        Output("fullscreen-chart", "figure"),
+    ],
+    [
+        # Button clicks
+        Input("fullscreen-btn-traffic", "n_clicks"),
+        Input("fullscreen-btn-ticket", "n_clicks"),
+        Input("fullscreen-btn-app-engagement", "n_clicks"),
+        Input("fullscreen-btn-combined", "n_clicks"),
+        Input("fullscreen-btn-employee-count", "n_clicks"),
+        Input("fullscreen-btn-hiring-flow", "n_clicks"),
+        Input("fullscreen-btn-hiring-velocity", "n_clicks"),
+        # Double-click on charts
+        Input("traffic-chart", "clickData"),
+        Input("ticket-chart", "clickData"),
+        Input("app-engagement-chart", "clickData"),
+        Input("combined-chart", "clickData"),
+        Input("employee-count-chart", "clickData"),
+        Input("hiring-flow-chart", "clickData"),
+        Input("hiring-velocity-chart", "clickData"),
+    ],
+    [
+        State("brand-selector", "value"),
+        State("date-range-selector", "value"),
+        State("fullscreen-modal", "is_open"),
+    ],
+    prevent_initial_call=True,
+)
+def toggle_fullscreen_modal(
+    btn_traffic, btn_ticket, btn_app, btn_combined,
+    btn_employee, btn_flow, btn_velocity,
+    click_traffic, click_ticket, click_app, click_combined,
+    click_employee, click_flow, click_velocity,
+    brand, date_range, is_open
+):
+    """Open fullscreen modal with the selected chart (button or double-click)."""
+    from charts import (
+        create_traffic_chart,
+        create_ticket_chart,
+        create_app_engagement_chart,
+        create_combined_chart,
+        create_employee_count_chart,
+        create_hiring_flow_chart,
+        create_hiring_velocity_chart,
+    )
+
+    # Determine which input triggered
+    triggered = ctx.triggered_id
+
+    if not triggered:
+        return False, "", {}
+
+    # Map trigger IDs to chart info
+    chart_mapping = {
+        # Button triggers
+        "fullscreen-btn-traffic": ("traffic", "Foot Traffic Index"),
+        "fullscreen-btn-ticket": ("ticket", "Average Ticket Size"),
+        "fullscreen-btn-app-engagement": ("app", "App Engagement"),
+        "fullscreen-btn-combined": ("combined", "Alt-Data Signals: Traffic x Ticket Size"),
+        "fullscreen-btn-employee-count": ("employee", "Total Job Postings Over Time"),
+        "fullscreen-btn-hiring-flow": ("flow", "Hiring Trends (New vs Closed)"),
+        "fullscreen-btn-hiring-velocity": ("velocity", "Hiring Velocity (MoM %)"),
+        # Double-click triggers (chart clickData)
+        "traffic-chart": ("traffic", "Foot Traffic Index"),
+        "ticket-chart": ("ticket", "Average Ticket Size"),
+        "app-engagement-chart": ("app", "App Engagement"),
+        "combined-chart": ("combined", "Alt-Data Signals: Traffic x Ticket Size"),
+        "employee-count-chart": ("employee", "Total Job Postings Over Time"),
+        "hiring-flow-chart": ("flow", "Hiring Trends (New vs Closed)"),
+        "hiring-velocity-chart": ("velocity", "Hiring Velocity (MoM %)"),
+    }
+
+    if triggered not in chart_mapping:
+        return False, "", {}
+
+    chart_type, title = chart_mapping[triggered]
+
+    # Load appropriate data and create chart
+    trend_df = load_brand_trend_data(brand)
+    hiring_df = load_brand_hiring_data(brand)
+
+    if chart_type == "traffic":
+        fig = create_traffic_chart(trend_df, date_range, fullscreen=True)
+    elif chart_type == "ticket":
+        fig = create_ticket_chart(trend_df, date_range, fullscreen=True)
+    elif chart_type == "app":
+        fig = create_app_engagement_chart(trend_df, date_range, fullscreen=True)
+    elif chart_type == "combined":
+        fig = create_combined_chart(trend_df, date_range, fullscreen=True)
+    elif chart_type == "employee":
+        fig = create_employee_count_chart(hiring_df, date_range, fullscreen=True)
+    elif chart_type == "flow":
+        fig = create_hiring_flow_chart(hiring_df, date_range, fullscreen=True)
+    elif chart_type == "velocity":
+        fig = create_hiring_velocity_chart(hiring_df, date_range, fullscreen=True)
+    else:
+        return False, "", {}
+
+    # Update figure for fullscreen display - increase height and adjust margins for range slider
+    fig.update_layout(
+        height=600,  # Larger height for fullscreen with range slider
+        margin=dict(l=60, r=40, t=50, b=100),  # More bottom margin for range slider
+        font=dict(size=14),
+    )
+
+    return True, title, fig
+
+
+# ============================================================================
+# Run Server
+# ============================================================================
+
+if __name__ == "__main__":
+    print("\n" + "=" * 70)
+    print("Alt-Data Pulse Dashboard - PRODUCTION READY")
+    print("=" * 70)
+    print("\nPhase 2H Complete: All features implemented!")
+    print("\nDashboard URL: http://localhost:8050")
+    print("\nFeatures:")
+    print("  - Bloomberg Terminal dark theme")
+    print("  - Interactive Plotly time series charts")
+    print("  - Real-time data from RevenuePredictor")
+    print("  - Live news feed from LSEG/Refinitiv (brand-filtered)")
+    print("  - LinkedIn-style Hiring Dashboard (LinkUp Data)")
+    print("    - Job posting KPIs (count, 6M/1Y/2Y change, trend)")
+    print("    - Job openings donut chart")
+    print("    - Employee count over time")
+    print("    - Hiring flow (new vs closed postings)")
+    print("    - Hiring velocity chart")
+    print("    - Fullscreen mode for charts (click expand icon)")
+    print("  - Auto-refresh (1, 5, 15 min or off)")
+    print("  - CSV export with date filtering")
+    print("  - Brand selector (7 QSR brands)")
+    print("  - KPI cards: Revenue, Consensus, Delta, Signal Strength")
+    print("\nPress Ctrl+C to stop the server\n")
+
+    app.run(
+        debug=True,
+        host="127.0.0.1",
+        port=8050,
+    )

@@ -4,16 +4,24 @@ google-cloud-bigquery
 pandas
 db-dtypes
 deweydatapy
+wrds
+pyarrow
 
 # Analysis
 numpy
 scipy
 statsmodels
+scikit-learn
 
 # Dashboard
 streamlit
 plotly
 altair
+dash>=2.14.0
+dash-bootstrap-components>=1.5.0
 
 # Config
 python-dotenv
+
+# Optional: LSEG Workspace integration
+refinitiv-data
